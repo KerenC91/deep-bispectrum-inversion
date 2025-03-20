@@ -1,0 +1,408 @@
+import torch.optim as optim
+import time 
+import os
+import wandb
+import torch 
+import argparse
+from models.DBIModel import DBIModel
+from config.hparams import hparams
+import numpy as np
+from trainer import Trainer
+import sys
+from torch import nn
+import random 
+import torch.multiprocessing as mp
+from torch.distributed import init_process_group, destroy_process_group
+import torch.distributed as dist
+from config.hparams import hparams
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.nn.functional as F
+from dataset import create_dataset, prepare_data_loader
+from torch.cuda import device_count
+from utils.utils import BispectrumCalculator
+               
+
+
+
+    
+
+def get_model(device, args, use_transformers=True):
+    
+    model = DBIModel(
+         input_len = args.N,
+         signals_count = args.K,
+         pre_residuals=args.pre_residuals,
+         pre_conv_channels=args.pre_conv_channels,
+         post_residuals=args.post_residuals,
+         reduce_height=args.reduce_height,
+         last_ch=args.last_ch,
+         activation=hparams.activation,
+         window_size = args.window_size,
+         img_size = args.img_size,
+         patch_size = args.patch_size,
+         depths = args.depths,
+         num_heads = args.num_heads,
+         qkv_bias = args.qkv_bias,
+         qk_scale = args.qk_scale,
+         drop = args.drop,
+         attn_drop = args.attn_drop,
+         drop_path_rate = args.drop_path_rate,
+         norm_layer = args.norm_layer,
+         downsample = args.downsample,
+         resi_connection = args.resi_connection,
+         use_transformers=use_transformers
+         ).to(device)
+    
+    return model
+    
+
+def load_checkpoint(model, optimizer, scheduler, ckp_path, device, args, is_distributed=False):
+    """Loads checkpoint efficiently for both single-GPU and DDP with synchronized error handling."""
+    map_location = "cpu" if is_distributed else f"cuda:{device}"
+    epoch = 0
+    error_flag = torch.tensor(0, dtype=torch.int, device="cuda" if is_distributed else "cpu")  # Error flag
+
+    if device == 0 :  # Load only on Rank 0 in DDP or for Single GPU
+        if os.path.exists(ckp_path):
+            print('Checkpoint found')
+            if args.run_mode == "override":
+                print('Overriding existing checkpoint')
+            elif args.run_mode == "resume" or args.run_mode == "from_pretrained":
+                try:
+                    checkpoint, model = load_model_safely(device, model, ckp_path, args, map_location)
+                    
+                    if args.run_mode == "resume":
+                        epoch = checkpoint['epoch']
+                        print(f'Resuming existing run, loading checkpoint at epoch {epoch}')
+                        # Load optimizer
+                        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                        
+                    if epoch >= args.epochs:  # Synchronize exit condition for all ranks
+                        print(f'Error! epoch={epoch} must be smaller than args.epochs={args.epochs}')
+                        error_flag += 1  # Set error flag                     
+
+                    # Load scheduler
+                    if args.run_mode == "from_pretrained":
+                        print(f'Starting a new run from pretrained model')
+                        scheduler = set_scheduler(args.scheduler, 
+                                                  optimizer, 
+                                                  args.epochs - epoch, 
+                                                  args.lr, 
+                                                  int(args.train_data_size / args.batch_size))
+                    else:
+                        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
+                    print(f"Device {device}: Checkpoint loaded.")
+
+                except Exception as e:
+                    print(f"Rank {device} encountered an error while loading checkpoint: {e}")
+                    error_flag += 1  # Set error flag if loading fails
+
+    if is_distributed:
+        # Synchronize error flag across all ranks
+        dist.broadcast(error_flag, src=0)
+
+        # If error_flag is raised on rank 0, exit all ranks
+        if error_flag.item() > 0:
+            print(f"Rank {device} exiting due to checkpoint loading failure.")
+            dist.barrier()  # Ensure all ranks synchronize before exiting
+            sys.exit(1)
+
+        # Synchronize all devices before proceeding
+        dist.barrier()
+
+        # Wrap model with DDP
+        model = DDP(model, device_ids=[device], output_device=device)
+
+        # Synchronize optimizer & scheduler states
+        for param in optimizer.state.values():
+            if isinstance(param, torch.Tensor):
+                dist.broadcast(param, src=0)
+
+        for key, value in scheduler.state_dict().items():
+            if isinstance(value, torch.Tensor):
+                dist.broadcast(value, src=0)
+
+    return model, optimizer, scheduler, epoch
+
+def load_model_safely(device, model, checkpoint_path, args, map_location):
+    # Load the checkpoint
+    checkpoint = torch.load(checkpoint_path, map_location=map_location)
+    
+    pre_trained_linear_shape = checkpoint['model_state_dict']["linear.weight"].shape
+    curr_linear_shape = model.linear.weight.shape
+    if args.run_mode == "from_pretrained" and pre_trained_linear_shape != curr_linear_shape: #different K
+        # Reinitialize fully connected layer
+        model.linear = nn.Linear(pre_trained_linear_shape[1], 
+                                 pre_trained_linear_shape[0]).to(device) # Manually reset with correct size
+        print("Reinitialized last layer due to shape mismatch.")
+            
+    try:
+        # Try loading with strict=True (default behavior)
+        model.load_state_dict(checkpoint['model_state_dict'])
+    except RuntimeError as e:
+        print("⚠️ Warning: Model loading failed due to unexpected/missing keys.")
+        print("Retrying with strict=False...")
+        
+        # Retry with strict=False to ignore mismatched keys           
+        missing_keys, unexpected_keys = \
+            model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+        print("Model loaded successfully with strict=False.")  
+        print(f"Loaded with missing keys: {missing_keys}")
+        print(f"Unexpected keys: {unexpected_keys}")
+    if args.run_mode == "from_pretrained" and pre_trained_linear_shape != curr_linear_shape:
+        model.linear = nn.Linear(args.last_ch, args.K).to(device)
+        if hparams.activation == 'LeakyReLU':
+            torch.nn.init.kaiming_uniform_(model.linear.weight, nonlinearity='leaky_relu') 
+        else:
+            torch.nn.init.xavier_uniform_(model.linear.weight) 
+        model.linear.bias.data.fill_(0.0)  # Optional: Set bias to zero
+        
+        model.conv_after_body.weight.data.fill_(0.0)  # Set all weights to zero
+        if model.conv_after_body.bias is not None:
+            model.conv_after_body.bias.data.fill_(0.0)  # Ensure bias is also zero
+        # bring model back to device
+        # model.to(device)
+    
+    return checkpoint, model    
+    
+
+
+def set_optimizer(args, model):
+    
+    args.lr = args.lr * device_count()
+
+    
+    if args.optimizer == 'SGD':
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,
+                                    momentum=hparams.opt_sgd_momentum,
+                                    weight_decay=hparams.opt_sgd_weight_decay)
+    elif args.optimizer == 'RMSProp':
+        optimizer = torch.optim.RMSProp(model.parameters(), lr=args.lr, 
+                                        alpha=hparams.opt_rms_prop_alpha,
+                                        eps=hparams.opt_eps)
+    elif args.optimizer == 'AdamW':
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr,
+                                      betas=hparams.opt_adam_w_betas,
+                                      eps=hparams.opt_adam_w_eps,
+                                      weight_decay=hparams.opt_adam_w_weight_decay)
+    else: # Adam
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr,
+                                      betas=hparams.opt_adam_betas,
+                                      eps=hparams.opt_adam_eps,
+                                      weight_decay=hparams.opt_adam_weight_decay)
+        
+    return optimizer
+
+
+def set_scheduler(scheduler_name, optimizer, epochs, lr, len_trainloader):
+    scheduler = None
+    if scheduler_name != 'None':
+        if scheduler_name == 'ReduceLROnPlateau':
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer=optimizer,
+                mode='min',
+                factor=hparams.reduce_lr_factor,
+                threshold=hparams.reduce_lr_threshold,
+                patience=hparams.reduce_lr_patience,
+                cooldown=hparams.reduce_lr_cooldown)
+        elif scheduler_name == 'StepLR':
+            scheduler = optim.lr_scheduler.StepLR(
+                optimizer=optimizer,
+                step_size=hparams.step_lr_step_size,
+                gamma=hparams.step_lr_gamma)
+        elif scheduler_name == 'OneCycleLR':
+            scheduler = optim.lr_scheduler.OneCycleLR(
+                optimizer=optimizer,
+                max_lr=lr,
+                div_factor=hparams.cyc_lr_div_factor,
+                steps_per_epoch=len_trainloader,
+                epochs=epochs,
+                pct_start=hparams.cyc_lr_pct_start,
+                anneal_strategy=hparams.cyc_lr_anneal_strategy)#,
+                #three_pahse=hparams.cyc_lr_three_pahse)  
+        elif scheduler_name == 'CosineAnnealingLR':
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                optimizer=optimizer,
+                T_max=epochs * len_trainloader * hparams.cos_ann_lr_T_max_f) 
+        elif scheduler_name == 'CyclicLR':        
+            scheduler = optim.lr_scheduler.CyclicLR(
+                optimizer=optimizer,
+                mode=hparams.cyclic_lr_mode,
+                base_lr=hparams.cyclic_lr_base_lr, 
+                max_lr=lr,
+                step_size_up=int(epochs * len_trainloader / 2 / hparams.cyclic_lr_step_size_up_f),
+                gamma=hparams.cyclic_lr_gamma) 
+
+    return scheduler
+    
+
+def create_test_name(args):
+    test_str = f'K{args.K}_N{args.N}_win{args.window_size}_bs{args.batch_size}_ep{args.epochs}_'\
+                    f'tr{args.train_data_size}_val{args.val_data_size}_'\
+                    f'lr_{args.lr:.1e}_{args.optimizer}_'
+    if args.scheduler != 'None':
+        test_str += f'{args.scheduler}_'
+    
+    # Append user defined test name
+    test_str += f'{args.run_output_suffix}'
+    
+    return test_str
+
+def train(args, params):
+    # Set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
+    
+    _train_impl(0, args, params)
+
+def train_distributed(args, params):
+    # Apply ddp setup
+    ddp_setup()
+    
+    device = int(os.environ["LOCAL_RANK"])
+    print(f'Using GPU {device}')    
+
+    _train_impl(device, args, params, is_distributed=True)
+
+
+def init(args, test_name):
+    # Set folder to write test data to
+    if not os.path.exists('output'):
+            os.mkdir('output')
+            
+    folder_write = os.path.join('output', test_name)
+    # The folder does not exist
+    if not os.path.exists(folder_write):
+            os.mkdir(folder_write)
+
+    if args.read_baseline:
+        # Set folder to read baseline data from
+        folder_read = os.path.join('data', args.baseline_data)
+        if not os.path.exists(folder_read):
+            raise ValueError(f'Error! {folder_read} does not exist\n'
+                  f'path={folder_read}')    
+    else:
+        folder_read = ''
+
+    return folder_read, folder_write
+    
+    
+def ddp_setup():
+    device = int(os.environ["LOCAL_RANK"])
+    # device = torch.device('cuda', device)
+    torch.cuda.set_device(device)
+    init_process_group(backend="nccl", init_method="env://")
+
+
+def _train_impl(device, args, params, is_distributed=False):
+    torch.backends.cudnn.benchmark = True
+
+    # Set wandb flag
+    wandb_flag = args.wandb
+    
+    test_name = create_test_name(args)
+ 
+    # Initialize args
+    folder_read, folder_write = init(args, test_name)
+    
+    # Initialize wandb
+    if device == 0:
+        run = None
+        if wandb_flag:
+            wandb.login()
+            if args.wandb_run_id == '':
+                run = wandb.init(project=args.wandb_proj_name,
+                   	           name = f"{test_name}",
+                   	           config=args)
+            else: #resume run
+                resume_mode = "must"
+                run = wandb.init(project=args.wandb_proj_name, 
+                                 id=args.wandb_run_id, 
+                                 resume=resume_mode)
+            wandb.log({"cmd_line": sys.argv})
+
+            # Save wandb run id to the output folder
+            np.savetxt(f'{folder_write}/wandb_run_id.csv', [wandb.run.id], fmt='%s')  
+        print(f'Running with {device_count()} GPUs')
+        print(f'use_transformers={not args.disable_transformers}')
+
+
+
+
+    # Initialize model and optimizer
+    model = get_model(device, args, not args.disable_transformers)
+    optimizer = set_optimizer(args, model)
+    # print and save model
+    if device == 0 and args.log_level >= 2:
+    	print(model)
+    
+
+    # Set train dataset and dataloader
+    bs_calc = BispectrumCalculator(args.K, args.N, 'cpu')
+    print('Set train data')
+
+    train_dataset = create_dataset(device, args.train_data_size, args.K, args.N,
+                                   False, args.data_mode,
+                                   folder_read, bs_calc,
+                                   args.noisy)
+        
+    train_loader = prepare_data_loader(train_dataset, args.batch_size, is_distributed)
+    # Set validation dataset and dataloader 
+    print('Set validation data')
+    
+    val_dataset = create_dataset(device, args.val_data_size, args.K, args.N,
+                                 args.read_baseline, 'fixed',
+                                 folder_read, bs_calc,
+                                 args.noisy)
+    
+    val_loader = prepare_data_loader(val_dataset, args.batch_size, is_distributed)
+    
+    scheduler = set_scheduler(args.scheduler, 
+                              optimizer, 
+                              args.epochs, 
+                              args.lr, 
+                              int(args.train_data_size / args.batch_size))
+    
+    # if exists, load from checkpoint
+    ckp_path = os.path.join(f'{folder_write}', 'ckp.pt')
+    
+    model, optimizer, scheduler, epoch = load_checkpoint(model, 
+                                                  optimizer, 
+                                                  scheduler, 
+                                                  ckp_path, 
+                                                  device, 
+                                                  args,
+                                                  is_distributed)
+    # Initialize trainer
+    trainer = Trainer(model=model, 
+                      train_loader=train_loader, 
+                      val_loader=val_loader, 
+                      train_dataset=train_dataset, 
+                      val_dataset=val_dataset, 
+                      wandb_flag=wandb_flag,
+                      device=device,
+                      optimizer=optimizer,
+                      optimizer_name=args.optimizer,
+                      scheduler=scheduler,
+                      scheduler_name=args.scheduler,
+                      folder_write=folder_write,
+                      start_epoch=epoch,
+                      args=args,
+                      is_distributed=is_distributed)
+    if device == 0:
+        start_time = time.time()  
+        print("Starting run...")
+    
+    # Free GPU Memory Before Training
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+
+    # Train and evaluate
+    trainer.run()
+    
+    if device == 0:
+       	end_time = time.time()
+  
+        print(f"Time taken to train in {os.path.basename(__file__)}:", 
+              end_time - start_time, "seconds")
