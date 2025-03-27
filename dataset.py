@@ -63,16 +63,16 @@ def read_sample_from_baseline(folder_read, data_size, K, N, label='x_true'):
     
     return target
 
-def read_dataset_from_baseline(folder_read, data_size, K, N, noisy):
+def read_dataset_from_baseline(folder_read, data_size, K, N, sigma, label="x_true"):
     target = read_sample_from_baseline(folder_read, data_size, K, N)
-    if noisy:
-        data = read_sample_from_baseline(folder_read, data_size, K, N, label="data")
+    if sigma:
+        data += sigma * torch.randn(data_size, K, N) # seems impossible to read from data, since it is a mixture of both K signals
     else:
         data = target  
     
     return data, target
 
-def generate_dataset(data_mode, data_size, K, N, noisy):
+def generate_dataset(data_mode, data_size, K, N, sigma):
     if data_mode == 'fixed':
         # Create random dataset
         target = torch.randn(data_size, K, N)
@@ -80,18 +80,18 @@ def generate_dataset(data_mode, data_size, K, N, noisy):
         # Initialize dataset to zeros and create data on the fly 
         target = torch.zeros(data_size, K, N)
     data = target
-    if noisy:
-        data += hparams.sigma * torch.randn(data_size, K, N)
+    if sigma:
+        data += sigma * torch.randn(data_size, K, N)
     
     return data, target
 
 def create_dataset(device, data_size, K, N, read_baseline, data_mode, 
-                   folder_read, bs_calc, noisy=False):
+                   folder_read, bs_calc, sigma = 0.):
     print(f'read_baseline={read_baseline}, data mode={data_mode}')
     if read_baseline: # in val dataset
-        data, target = read_dataset_from_baseline(folder_read, data_size, K, N, noisy)
+        data, target = read_dataset_from_baseline(folder_read, data_size, K, N, sigma)
     else:
-        data, target = generate_dataset(data_mode, data_size, K, N, noisy)
+        data, target = generate_dataset(data_mode, data_size, K, N, sigma)
     
     source, data = bs_calc(data)        
     dataset = StandardGaussianDataset(source, target)

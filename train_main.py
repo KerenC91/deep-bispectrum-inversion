@@ -5,7 +5,6 @@ import wandb
 import torch 
 import argparse
 from models.DBIModel import DBIModel
-from config.hparams import hparams
 import numpy as np
 from trainer import Trainer
 import sys
@@ -14,53 +13,50 @@ import random
 import torch.multiprocessing as mp
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
-from config.hparams import hparams
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.nn.functional as F
 from dataset import create_dataset, prepare_data_loader
 from torch.cuda import device_count
 from utils.utils import BispectrumCalculator
-               
 
 
 
     
 
-def get_model(device, args, use_transformers=True):
+def get_model(device, args, params):
     
     model = DBIModel(
          input_len = args.N,
          signals_count = args.K,
-         pre_residuals=args.pre_residuals,
-         pre_conv_channels=args.pre_conv_channels,
-         post_residuals=args.post_residuals,
-         reduce_height=args.reduce_height,
-         last_ch=args.last_ch,
-         activation=hparams.activation,
+         pre_residuals=params.pre_residuals,
+         pre_conv_channels=params.pre_conv_channels,
+         post_residuals=params.post_residuals,
+         reduce_height=params.reduce_height,
+         last_ch=params.last_ch,
+         activation=params.activation,
          window_size = args.window_size,
-         img_size = args.img_size,
-         patch_size = args.patch_size,
+         patch_size = params.patch_size,
          depths = args.depths,
          num_heads = args.num_heads,
-         qkv_bias = args.qkv_bias,
-         qk_scale = args.qk_scale,
-         drop = args.drop,
-         attn_drop = args.attn_drop,
-         drop_path_rate = args.drop_path_rate,
-         norm_layer = args.norm_layer,
-         downsample = args.downsample,
-         resi_connection = args.resi_connection,
-         use_transformers=use_transformers
+         qkv_bias = params.qkv_bias,
+         qk_scale = params.qk_scale,
+         drop = params.drop,
+         attn_drop = params.attn_drop,
+         drop_path_rate = params.drop_path_rate,
+         norm_layer = params.norm_layer,
+         downsample = params.downsample,
+         resi_connection = params.resi_connection,
+         use_transformers=not args.disable_transformers
          ).to(device)
     
     return model
     
 
-def load_checkpoint(model, optimizer, scheduler, ckp_path, device, args, is_distributed=False):
+def load_checkpoint(model, optimizer, scheduler, ckp_path, device, args, params, len_train_loader, is_distributed=False):
     """Loads checkpoint efficiently for both single-GPU and DDP with synchronized error handling."""
     map_location = "cpu" if is_distributed else f"cuda:{device}"
     epoch = 0
-    error_flag = torch.tensor(0, dtype=torch.int, device="cuda" if is_distributed else "cpu")  # Error flag
+    error_flag = torch.tensor(0, dtype=torch.int, device=device)  # Error flag
 
     if device == 0 :  # Load only on Rank 0 in DDP or for Single GPU
         if os.path.exists(ckp_path):
@@ -69,7 +65,7 @@ def load_checkpoint(model, optimizer, scheduler, ckp_path, device, args, is_dist
                 print('Overriding existing checkpoint')
             elif args.run_mode == "resume" or args.run_mode == "from_pretrained":
                 try:
-                    checkpoint, model = load_model_safely(device, model, ckp_path, args, map_location)
+                    checkpoint, model = load_model_safely(device, model, ckp_path, args, params, map_location)
                     
                     if args.run_mode == "resume":
                         epoch = checkpoint['epoch']
@@ -82,15 +78,16 @@ def load_checkpoint(model, optimizer, scheduler, ckp_path, device, args, is_dist
                         error_flag += 1  # Set error flag                     
 
                     # Load scheduler
-                    if args.run_mode == "from_pretrained":
-                        print(f'Starting a new run from pretrained model')
-                        scheduler = set_scheduler(args.scheduler, 
-                                                  optimizer, 
-                                                  args.epochs - epoch, 
-                                                  args.lr, 
-                                                  int(args.train_data_size / args.batch_size))
-                    else:
-                        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                    if scheduler is not None:
+                        if args.run_mode == "from_pretrained":
+                            print(f'Starting a new run from pretrained model')
+                            scheduler = set_scheduler(args.scheduler, params,
+                                                      optimizer, 
+                                                      args.epochs - epoch, 
+                                                      args.lr, 
+                                                      len_train_loader)
+                        else:
+                            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
 
                     print(f"Device {device}: Checkpoint loaded.")
 
@@ -118,14 +115,14 @@ def load_checkpoint(model, optimizer, scheduler, ckp_path, device, args, is_dist
         for param in optimizer.state.values():
             if isinstance(param, torch.Tensor):
                 dist.broadcast(param, src=0)
-
-        for key, value in scheduler.state_dict().items():
-            if isinstance(value, torch.Tensor):
-                dist.broadcast(value, src=0)
+        if scheduler is not None:
+            for key, value in scheduler.state_dict().items():
+                if isinstance(value, torch.Tensor):
+                    dist.broadcast(value, src=0)
 
     return model, optimizer, scheduler, epoch
 
-def load_model_safely(device, model, checkpoint_path, args, map_location):
+def load_model_safely(device, model, checkpoint_path, args, params, map_location):
     # Load the checkpoint
     checkpoint = torch.load(checkpoint_path, map_location=map_location)
     
@@ -152,7 +149,7 @@ def load_model_safely(device, model, checkpoint_path, args, map_location):
         print(f"Unexpected keys: {unexpected_keys}")
     if args.run_mode == "from_pretrained" and pre_trained_linear_shape != curr_linear_shape:
         model.linear = nn.Linear(args.last_ch, args.K).to(device)
-        if hparams.activation == 'LeakyReLU':
+        if params.activation == 'LeakyReLU':
             torch.nn.init.kaiming_uniform_(model.linear.weight, nonlinearity='leaky_relu') 
         else:
             torch.nn.init.xavier_uniform_(model.linear.weight) 
@@ -168,71 +165,68 @@ def load_model_safely(device, model, checkpoint_path, args, map_location):
     
 
 
-def set_optimizer(args, model):
-    
-    args.lr = args.lr * device_count()
-
-    
+def set_optimizer(args, params, model):
+       
     if args.optimizer == 'SGD':
         optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,
-                                    momentum=hparams.opt_sgd_momentum,
-                                    weight_decay=hparams.opt_sgd_weight_decay)
+                                    momentum=params.opt_sgd_momentum,
+                                    weight_decay=params.opt_sgd_weight_decay,
+                                    nesterov=params.opt_sgd_nesterov)
     elif args.optimizer == 'RMSProp':
         optimizer = torch.optim.RMSProp(model.parameters(), lr=args.lr, 
-                                        alpha=hparams.opt_rms_prop_alpha,
-                                        eps=hparams.opt_eps)
+                                        alpha=params.opt_rms_prop_alpha,
+                                        eps=params.opt_eps)
     elif args.optimizer == 'AdamW':
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr,
-                                      betas=hparams.opt_adam_w_betas,
-                                      eps=hparams.opt_adam_w_eps,
-                                      weight_decay=hparams.opt_adam_w_weight_decay)
+                                      betas=params.opt_adam_w_betas,
+                                      eps=params.opt_adam_w_eps,
+                                      weight_decay=params.opt_adam_w_weight_decay)
     else: # Adam
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr,
-                                      betas=hparams.opt_adam_betas,
-                                      eps=hparams.opt_adam_eps,
-                                      weight_decay=hparams.opt_adam_weight_decay)
+                                      betas=params.opt_adam_betas,
+                                      eps=params.opt_adam_eps,
+                                      weight_decay=params.opt_adam_weight_decay)
         
     return optimizer
 
 
-def set_scheduler(scheduler_name, optimizer, epochs, lr, len_trainloader):
+def set_scheduler(scheduler_name, params, optimizer, epochs, lr, len_trainloader):
     scheduler = None
     if scheduler_name != 'None':
         if scheduler_name == 'ReduceLROnPlateau':
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer=optimizer,
                 mode='min',
-                factor=hparams.reduce_lr_factor,
-                threshold=hparams.reduce_lr_threshold,
-                patience=hparams.reduce_lr_patience,
-                cooldown=hparams.reduce_lr_cooldown)
+                factor=params.reduce_lr_factor,
+                threshold=params.reduce_lr_threshold,
+                patience=params.reduce_lr_patience,
+                cooldown=params.reduce_lr_cooldown)
         elif scheduler_name == 'StepLR':
             scheduler = optim.lr_scheduler.StepLR(
                 optimizer=optimizer,
-                step_size=hparams.step_lr_step_size,
-                gamma=hparams.step_lr_gamma)
+                step_size=params.step_lr_step_size,
+                gamma=params.step_lr_gamma)
         elif scheduler_name == 'OneCycleLR':
             scheduler = optim.lr_scheduler.OneCycleLR(
                 optimizer=optimizer,
                 max_lr=lr,
-                div_factor=hparams.cyc_lr_div_factor,
+                div_factor=params.cyc_lr_div_factor,
                 steps_per_epoch=len_trainloader,
                 epochs=epochs,
-                pct_start=hparams.cyc_lr_pct_start,
-                anneal_strategy=hparams.cyc_lr_anneal_strategy)#,
-                #three_pahse=hparams.cyc_lr_three_pahse)  
+                pct_start=params.cyc_lr_pct_start,
+                anneal_strategy=params.cyc_lr_anneal_strategy)
         elif scheduler_name == 'CosineAnnealingLR':
             scheduler = optim.lr_scheduler.CosineAnnealingLR(
                 optimizer=optimizer,
-                T_max=epochs * len_trainloader * hparams.cos_ann_lr_T_max_f) 
+                T_max=epochs * len_trainloader * params.cos_ann_lr_T_max_f) 
         elif scheduler_name == 'CyclicLR':        
             scheduler = optim.lr_scheduler.CyclicLR(
                 optimizer=optimizer,
-                mode=hparams.cyclic_lr_mode,
-                base_lr=hparams.cyclic_lr_base_lr, 
+                mode=params.cyclic_lr_mode,
+                base_lr=lr * params.cyclic_lr_mult_factor, 
                 max_lr=lr,
-                step_size_up=int(epochs * len_trainloader / 2 / hparams.cyclic_lr_step_size_up_f),
-                gamma=hparams.cyclic_lr_gamma) 
+                step_size_up=int(epochs * len_trainloader / 2 * params.cyclic_lr_step_size_up_mult_f),
+                gamma=params.cyclic_lr_gamma) 
 
     return scheduler
     
@@ -324,18 +318,16 @@ def _train_impl(device, args, params, is_distributed=False):
 
             # Save wandb run id to the output folder
             np.savetxt(f'{folder_write}/wandb_run_id.csv', [wandb.run.id], fmt='%s')  
-        print(f'Running with {device_count()} GPUs')
+        if is_distributed:
+            print(f'Distributed Training: running with {device_count()} GPUs')
         print(f'use_transformers={not args.disable_transformers}')
 
 
 
 
     # Initialize model and optimizer
-    model = get_model(device, args, not args.disable_transformers)
-    optimizer = set_optimizer(args, model)
-    # print and save model
-    if device == 0 and args.log_level >= 2:
-    	print(model)
+    model = get_model(device, args, params)
+    optimizer = set_optimizer(args, params, model)
     
 
     # Set train dataset and dataloader
@@ -345,7 +337,7 @@ def _train_impl(device, args, params, is_distributed=False):
     train_dataset = create_dataset(device, args.train_data_size, args.K, args.N,
                                    False, args.data_mode,
                                    folder_read, bs_calc,
-                                   args.noisy)
+                                   args.sigma)
         
     train_loader = prepare_data_loader(train_dataset, args.batch_size, is_distributed)
     # Set validation dataset and dataloader 
@@ -354,15 +346,15 @@ def _train_impl(device, args, params, is_distributed=False):
     val_dataset = create_dataset(device, args.val_data_size, args.K, args.N,
                                  args.read_baseline, 'fixed',
                                  folder_read, bs_calc,
-                                 args.noisy)
+                                 args.sigma)
     
     val_loader = prepare_data_loader(val_dataset, args.batch_size, is_distributed)
     
-    scheduler = set_scheduler(args.scheduler, 
+    scheduler = set_scheduler(args.scheduler, params,
                               optimizer, 
                               args.epochs, 
                               args.lr, 
-                              int(args.train_data_size / args.batch_size))
+                              len(train_loader))
     
     # if exists, load from checkpoint
     ckp_path = os.path.join(f'{folder_write}', 'ckp.pt')
@@ -373,6 +365,8 @@ def _train_impl(device, args, params, is_distributed=False):
                                                   ckp_path, 
                                                   device, 
                                                   args,
+                                                  params,
+                                                  len(train_loader),
                                                   is_distributed)
     # Initialize trainer
     trainer = Trainer(model=model, 

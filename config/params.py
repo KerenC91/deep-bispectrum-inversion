@@ -1,18 +1,18 @@
 import numpy as np
 
 
-class HParams:
+class Params:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
-hparams = HParams(
-    
-    #####################################
-    # data config 
-    #####################################
-    sigma = 0.1,
+params = Params(
     ##########################
-    # scheduler config
+    # loss
+    ##########################
+    loss_transition_start = 0.8,
+    loss_transition_sharpness = 20,
+    ##########################
+    # scheduler
     ##########################
     # Manual:
     manual_lr_f = 0.1,    
@@ -22,35 +22,30 @@ hparams = HParams(
     reduce_lr_mode='min',
     reduce_lr_factor = 0.5,
     reduce_lr_threshold = 1e-4,
-    reduce_lr_patience = 5,
-    reduce_lr_cooldown = 0,
+    reduce_lr_patience = 3,
+    reduce_lr_cooldown = 2,
 
     # StepLR - every step_size epochs decrease by lr gamma factor
-    step_lr_step_size = 2000,#1000, 
-    step_lr_gamma = 0.94,
+    step_lr_step_size = 200,#1000, 
+    step_lr_gamma = 0.5,
     
     # OneCycleLR - perform one cycle of learning. 
     # epochs and steps per epochs are defined in the code
-    # cyc_lr_max_lr = 1e-2,
     cyc_lr_pct_start = 0.562,
     cyc_lr_anneal_strategy = 'cos',
-    cyc_lr_three_pahse= True,
-    cyc_lr_div_factor = 16,#25
-	#"cyc_lr_epochs": num_epochs,
-	#"cyc_lr_steps_per_epoch": len(train_loader),
+    cyc_lr_div_factor = 57,
     
     # CosineAnnealingLR - used as:
     # cos_ann_lr_T_max = int(num_epochs * len(train_loader) * cos_ann_lr_T_max_f)
     # performs (cos_ann_lr_T_max_f / 2) cosine periods
-    cos_ann_lr_T_max_f = 0.1,
+    cos_ann_lr_T_max_f = 1.,
     
     # CyclicLR
     # cyclic_lr_step_size_up = int(num_epochs * len(train_loader) / 2 / cyclic_lr_step_size_up_f)
     # Performs cyclic_lr_step_size_up_f traingle periods
-    cyclic_lr_base_lr=1e-4, 
-    # cyclic_lr_max_lr=1e-2,
+    cyclic_lr_mult_factor=1e-2,
     cyclic_lr_mode="triangular",
-    cyclic_lr_step_size_up_f=3,
+    cyclic_lr_step_size_up_mult_f=1.,
     cyclic_lr_gamma=1,
     
     ##########################
@@ -61,6 +56,7 @@ hparams = HParams(
     # SGD
     opt_sgd_momentum = 0.9,
     opt_sgd_weight_decay = 1e-4,
+    opt_sgd_nesterov = True,
     # AdamW
     opt_adam_w_betas=(0.9, 0.999),
     opt_adam_w_weight_decay=1e-2,
@@ -74,24 +70,29 @@ hparams = HParams(
     opt_eps = 9.606529741408894e-07,
 
     ##########################
-    # CNN params
+    # DNN
     ##########################
-    last_ch = 256, # last ch of pre conv. for all models: 8, for model3: 256
-
-    pre_conv_channels = [8, 32],#[8, 32, 256], 
-                        #layer_channels list of values on each of heads
-    reduce_height = [4, 3, 3], # RELEVANT FOR MODEL2, 3 ONLY
-                    #relevant only for model2 - [count kernel stride]
-                    #for reducing height in tensor: BXCXHXW to BXCX1XW
-    pre_residuals = 9,#11, 
-    up_residuals = 8,#3,    
-    post_residuals = 2,#14,
+    # Swin Transformers
+    qkv_bias = False,
+    qk_scale = False,
+    drop=0.,
+    attn_drop=0.,
+    drop_path_rate=0.1,
+    norm_layer = True,
+    downsample = False,
+    resi_connection='1conv',
+    patch_size=1, #'patch size used in training SwinIR. '
+                  #'Just used to differentiate two different settings in Table 2 of the paper. '
+                  #'Images are NOT tested patch by patch.'
+    # Additional parameters
+    last_ch = 256, # embed_dim
+    pre_conv_channels = [8, 32],
+    reduce_height = [4, 3, 3], # for reducing height in tensor: BXCXHXW to BXCX1XW
+    pre_residuals = 11,#9
+    post_residuals = 14,#2
     activation = 'LeakyReLU',
     ##########################
     # additional params
     ##########################
     early_stopping_count = 100,
-    # comparison with baseline
-    data_root = '../data',
 )
-

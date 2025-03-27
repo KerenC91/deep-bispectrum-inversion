@@ -22,7 +22,6 @@ class DBIModel(nn.Module):
             last_ch,
             activation,
             window_size,
-            img_size,
             patch_size,
             depths,
             num_heads,
@@ -45,7 +44,7 @@ class DBIModel(nn.Module):
         self.act_fn = self._set_activation(activation)
         pre_conv_channels.append(last_ch)
         if self.use_transformers:
-            self._transformers_init(depths, drop, attn_drop, img_size, patch_size, window_size, qkv_bias, qk_scale, 
+            self._transformers_init(depths, drop, attn_drop, input_len, patch_size, window_size, qkv_bias, qk_scale, 
                                     num_heads, resi_connection, norm_layer, downsample, drop_path_rate, pre_conv_channels)
         # Create pre_conv layer
         self.pre_conv = self._set_pre_conv_layers(pre_conv_channels, pre_residuals)
@@ -83,7 +82,7 @@ class DBIModel(nn.Module):
         self.drop_path_rate = drop_path_rate
         self.pos_drop = nn.Dropout(p=self.drop_rate)
         self.attn_drop_rate = attn_drop
-        self.img_size=img_size
+        self.img_size=48#img_size
         self.patch_norm = True
         self.patch_size = patch_size
         self.depths = depths 

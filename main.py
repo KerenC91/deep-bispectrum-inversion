@@ -9,7 +9,7 @@ import torch
 import argparse
 from torch.cuda import device_count
 import torch.multiprocessing as mp
-from config.hparams import hparams
+from config.params import params
 from train_main import train, train_distributed
 import os
 
@@ -30,13 +30,14 @@ def main(args):
         if args.batch_size % replica_count != 0:
             raise ValueError(f'Batch size {args.batch_size} is not evenly divisble by # GPUs {replica_count}.')
         args.batch_size = args.batch_size // replica_count
-        train_distributed(args, hparams)
+        args.batch_size = args.batch_size // replica_count
+        train_distributed(args, params)
     else:
         if torch.cuda.is_available():
             print("Running with a single GPU")
         else:
             print("GPU is not available, running with CPU")
-        train(args, hparams)
+        train(args, params)
 
 
 if __name__ == "__main__":
@@ -67,7 +68,8 @@ if __name__ == "__main__":
             help='the size of the train data') 
     parser.add_argument('--val_data_size', type=int, default=100, metavar='N',
             help='the size of the validate data')  
-    parser.add_argument('--noisy', action='store_true', help='noisy dataset')
+    parser.add_argument('--sigma', type=float, default=0., metavar='f',
+            help='Amount of noise in case of working with noisy dataset. Default: 0.') 
     # baseline data
     parser.add_argument('--baseline_data', type=str, default='',
             help='baseline data folder results for comparison') 
@@ -82,11 +84,8 @@ if __name__ == "__main__":
     parser.add_argument('--wandb_run_id', type=str, default="",
                         help='run id to resume running. If not provided - new run.') 
     # loss
-    parser.add_argument('--loss_method', type=str, default="average",  
-                        help='one of \'average\', \'sum\'.'
-                        'Note: the training loss is always l1') 
-    parser.add_argument('--loss_criterion', type=str, default="sc", 
-                        help='one out of \"l1\", \"mse\", \"sc\".') 
+    parser.add_argument('--loss_criterion', type=str, default="bs_mse", 
+                        help='one out of \"bs_mse\", \"mse\".') 
     
     parser.add_argument('--clip_grad_norm', type=float, default=0.,  
                         help='If greater than 0: clip gradients norm with the clip_grad_norm value.') 
@@ -97,48 +96,17 @@ if __name__ == "__main__":
     # model 
     parser.add_argument('--disable_transformers', action='store_true', 
                         help='Disable transformers in the model. Default: Transformers are enabled.')
-    parser.add_argument('--pre_residuals', type=int, default=9, 
-                        help='pre residuals layers count')
-    parser.add_argument('--post_residuals', type=int, default=2, 
-                        help='post residuals layers count')
-    parser.add_argument('--last_ch', type=int, default=256, help='last_ch')
-    parser.add_argument('--pre_conv_channels', type=int, nargs='+', default=[8, 32], 
-                        help='layer_channels list of values on each of heads. The final channel is last_ch (appended later)')
-    parser.add_argument('--reduce_height', type=int, nargs='+', default=[4, 3, 3], 
-                        help='[count kernel stride] ' 
-                        'for reducing height in tensor: BXCXHXW to BXCX1XW')
-
+ 
     # swin transformer
     parser.add_argument('--window_size', type=int, default=8, 
-                        help='window_size')    
-    parser.add_argument('--img_size', type=int, default=48, 
-                        help='for patches. unused.')  
-    parser.add_argument('--patch_size', type=int, default=1, 
-                        help='patch size used in training SwinIR. '
-                            'Just used to differentiate two different settings in Table 2 of the paper. '
-                            'Images are NOT tested patch by patch.')    
+                        help='window_size')       
     parser.add_argument('--depths', type=int, nargs='+', 
                         default=[6, 6], 
                         help='depths')    
     parser.add_argument('--num_heads', type=int, nargs='+', 
                         default=[2, 2], 
                         help='num_heads')      
-    parser.add_argument('--qkv_bias', action='store_true', 
-                        help='') 
-    parser.add_argument('--qk_scale', action='store_true', 
-                        help='')     
-    parser.add_argument('--drop', type=float, default=0.,
-                        help='drop')
-    parser.add_argument('--attn_drop', type=float, default=0.,
-                        help='attn_drop')
-    parser.add_argument('--drop_path_rate', type=float, default=0.1,
-                        help='drop_path_rate')
-    parser.add_argument('--norm_layer',  action='store_false',
-                        help='norm_layer')
-    parser.add_argument('--downsample', action='store_true', 
-                        help='downsample')
-    parser.add_argument('--resi_connection', type=str, default='1conv',
-                        help='resi_connection')
+
     #
     parser.add_argument('--run_output_suffix', type=str, default='test',
             help='folder test name to save results into') 
@@ -149,10 +117,6 @@ if __name__ == "__main__":
     parser.add_argument('--early_stopping', action='store_true', 
                         help='early stopping after early_stopping times. '
                         'Update early_stopping in configuration') 
-    # debug
-    parser.add_argument('--log_level', type=int, default=0, 
-                        help='0: info, 1: warning, '
-                        '2: debug, 3: detailed debug')
 
     # mixed precision
     parser.add_argument('--fp16', action='store_true', 
