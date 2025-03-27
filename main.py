@@ -13,6 +13,7 @@ from config.params import params
 from train_main import train, train_distributed
 import os
 
+
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 def is_torchrun():
@@ -29,7 +30,6 @@ def main(args):
     if replica_count > 1:
         if args.batch_size % replica_count != 0:
             raise ValueError(f'Batch size {args.batch_size} is not evenly divisble by # GPUs {replica_count}.')
-        args.batch_size = args.batch_size // replica_count
         args.batch_size = args.batch_size // replica_count
         train_distributed(args, params)
     else:
@@ -108,7 +108,7 @@ if __name__ == "__main__":
                         help='num_heads')      
 
     #
-    parser.add_argument('--run_output_suffix', type=str, default='test',
+    parser.add_argument('--run_output_suffix', type=str, default='',
             help='folder test name to save results into') 
     parser.add_argument('--save_every', type=int, default=5, 
             help='save checkpoint every <save_every> epoch')
