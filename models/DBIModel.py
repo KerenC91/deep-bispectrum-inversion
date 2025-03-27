@@ -252,7 +252,8 @@ class DBIModel(nn.Module):
             Tensor: B x C x (2^#channels * T) # 100X100X(2^#channels * 2)
         """
         x = self.pre_conv(x)
-        x = self.conv_after_body(self.forward_features(x)) + x
+        if self.use_transformers:
+            x = self.conv_after_body(self.forward_features(x)) + x
         # for BXCXHXW reduce dimension to BXCX1XW
         x = self.reduce_height(x)
         x = x.squeeze(2)
