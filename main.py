@@ -8,7 +8,6 @@ Created on Tue Dec 17 22:49:44 2024
 import torch
 import argparse
 from torch.cuda import device_count
-import torch.multiprocessing as mp
 from config.params import params
 from train_main import train, train_distributed
 import os

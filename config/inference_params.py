@@ -6,10 +6,6 @@ Created on Mon Feb 17 20:36:09 2025
 @author: kerencohen2
 """
 
-import numpy as np
-import torch
-
-
 class DictParams:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)

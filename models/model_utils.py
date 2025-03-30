@@ -1,6 +1,4 @@
-import torch
 from torch import nn
-import numpy as np
 
 class ResnetBlock(nn.Module):
     """Residual Block

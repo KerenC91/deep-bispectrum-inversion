@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-import numpy as np
 from models.model_utils import ResnetBlock, ConvBlock
 from models.network_swinir import RSTB, PatchEmbed, PatchUnEmbed
 

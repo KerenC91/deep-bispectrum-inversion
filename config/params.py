@@ -1,5 +1,3 @@
-import numpy as np
-
 
 class Params:
     def __init__(self, **kwargs):
