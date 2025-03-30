@@ -21,6 +21,7 @@ inference_args = DictParams(
     window_size = 6, 
     depths = [6, 6],                      
     num_heads = [2, 2], 
+    last_ch = 256,
     data_mode = 'random', # 'random' / 'fixed'
     data_size=100,
     disable_transformers = False,
@@ -43,7 +44,6 @@ inference_params = DictParams(
     patch_size=1, #'patch size used in training SwinIR. '
                   #'Just used to differentiate two different settings in Table 2 of the paper. '
                   #'Images are NOT tested patch by patch.'
-    last_ch = 256,
     pre_conv_channels = [8, 32], 
     reduce_height = [4, 3, 3],      
     pre_residuals = 11,

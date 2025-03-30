@@ -85,7 +85,7 @@ if __name__ == "__main__":
                         help='run id to resume running. If not provided - new run.') 
     # loss
     parser.add_argument('--loss_criterion', type=str, default="bs_mse", 
-                        help='one out of \"bs_mse\", \"mse\".') 
+                        help='Loss criterion for matched mse \"bs_mse\", \"mse\", only relevant for K > 1.') 
     
     parser.add_argument('--clip_grad_norm', type=float, default=0.,  
                         help='If greater than 0: clip gradients norm with the clip_grad_norm value.') 
@@ -106,6 +106,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_heads', type=int, nargs='+', 
                         default=[2, 2], 
                         help='num_heads')      
+    parser.add_argument('--embed_dim', type=int, default=256, help='embed_dim')
 
     #
     parser.add_argument('--run_output_suffix', type=str, default='',

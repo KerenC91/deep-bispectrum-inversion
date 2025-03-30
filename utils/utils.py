@@ -81,27 +81,7 @@ class BispectrumCalculator(nn.Module):
             #add for sum loss metric
         return source, target  # Stack processed vectors
 
-
-
-class BatchAligneToReference(nn.Module):
-    def __init__(self, device):
-        super().__init__()
-        self._align = align_to_reference
-        self.device = device
-        
-    def forward(self, x, xref):
-        batch_size = x.shape[0]
-        signals_count = x.shape[1]
-        # Iterate over the batch dimension using indexing
-        x_aligned = torch.zeros_like(x).to(self.device)
-        inds = torch.zeros(batch_size, signals_count).to(self.device)
-        
-        for i in range(batch_size):
-            for j in range(signals_count):
-                x_aligned[i][j], inds[i][j] = \
-                    self._align(x[i][j], xref[i][j])
-        return x_aligned, inds  # Stack processed vectors
-    
+  
    
 def align_to_reference(x, xref, force_copy=False):
     """

@@ -66,9 +66,12 @@ params = Params(
     opt_adam_eps = 1e-8,
     opt_adam_weight_decay=0.0,
     
-    # all optimizer params
+    # all optimizers' params
     opt_eps = 9.606529741408894e-07,
-
+    ##########################
+    # loss
+    ##########################
+    loss_alpha = 1.
     ##########################
     # DNN
     ##########################
@@ -85,7 +88,6 @@ params = Params(
                   #'Just used to differentiate two different settings in Table 2 of the paper. '
                   #'Images are NOT tested patch by patch.'
     # Additional parameters
-    last_ch = 256, # embed_dim
     pre_conv_channels = [8, 32],
     reduce_height = [4, 3, 3], # for reducing height in tensor: BXCXHXW to BXCX1XW
     pre_residuals = 11,#9

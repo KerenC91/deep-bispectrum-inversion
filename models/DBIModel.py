@@ -19,7 +19,7 @@ class DBIModel(nn.Module):
             pre_conv_channels,
             post_residuals,
             reduce_height,
-            last_ch,
+            embed_dim,
             activation,
             window_size,
             patch_size,
@@ -39,10 +39,10 @@ class DBIModel(nn.Module):
         
         self.use_transformers = use_transformers
         self.bs_channels=2
-        self.embed_dim = last_ch
-        self.linear = nn.Linear(last_ch, signals_count)
+        self.embed_dim = embed_dim
+        self.linear = nn.Linear(embed_dim, signals_count)
         self.act_fn = self._set_activation(activation)
-        pre_conv_channels.append(last_ch)
+        pre_conv_channels.append(embed_dim)
         if self.use_transformers:
             self._transformers_init(depths, drop, attn_drop, input_len, patch_size, window_size, qkv_bias, qk_scale, 
                                     num_heads, resi_connection, norm_layer, downsample, drop_path_rate, pre_conv_channels)
@@ -237,9 +237,9 @@ class DBIModel(nn.Module):
 
     def _set_post_conv_layers(self, post_residuals):
         post_convs = []
-        last_channels = int(self.embed_dim)
+
         for i in range(post_residuals):
-            post_convs.append(ResnetBlock(last_channels, last_channels, one_d=True, kernel_size=5))
+            post_convs.append(ResnetBlock(self.embed_dim, self.embed_dim, one_d=True, kernel_size=5))
         return nn.Sequential(*post_convs)
     
     def forward(self, x):

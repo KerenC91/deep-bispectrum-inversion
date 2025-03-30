@@ -32,7 +32,7 @@ def get_model(device, args, params):
          pre_conv_channels=params.pre_conv_channels,
          post_residuals=params.post_residuals,
          reduce_height=params.reduce_height,
-         last_ch=params.last_ch,
+         embed_dim=params.embed_dim,
          activation=params.activation,
          window_size = args.window_size,
          patch_size = params.patch_size,
@@ -148,7 +148,7 @@ def load_model_safely(device, model, checkpoint_path, args, params, map_location
         print(f"Loaded with missing keys: {missing_keys}")
         print(f"Unexpected keys: {unexpected_keys}")
     if args.run_mode == "from_pretrained" and pre_trained_linear_shape != curr_linear_shape:
-        model.linear = nn.Linear(args.last_ch, args.K).to(device)
+        model.linear = nn.Linear(args.embed_dim, args.K).to(device)
         if params.activation == 'LeakyReLU':
             torch.nn.init.kaiming_uniform_(model.linear.weight, nonlinearity='leaky_relu') 
         else:

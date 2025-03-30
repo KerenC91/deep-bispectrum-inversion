@@ -1,7 +1,7 @@
 import os
 import wandb
 import torch 
-from utils.utils import BispectrumCalculator, BatchAligneToReference, align_to_reference, align_to_reference_batched, compute_cost_matrix, greedy_match
+from utils.utils import BispectrumCalculator, BatchAligneToReference, compute_cost_matrix, greedy_match
 from config.params import params
 import matplotlib.pyplot as plt
 import numpy as np
@@ -57,7 +57,6 @@ class Trainer:
         self.scheduler_name = scheduler_name
         self.data_mode = args.data_mode
         self.bs_calc = BispectrumCalculator(self.signals_count, self.target_len, self.device).to(self.device)
-        self.aligner = BatchAligneToReference(self.device).to(self.device)
         self.folder_write = folder_write
         self.clip = args.clip_grad_norm
         self.loss_criterion = args.loss_criterion
@@ -73,26 +72,23 @@ class Trainer:
     def _loss(self, pred, target):
         total_loss = 0.
         
+        # Compute avergae bispectrum mse loss
         bs_pred, _ = self.bs_calc(pred)
         bs_target, _ = self.bs_calc(target)
         bs_mse_loss = torch.norm(bs_pred - bs_target)**2 / torch.norm(bs_target)**2
 
+        # Compute matched mse loss according to loss criterion
         if self.signals_count > 1:
-            # pdb.set_trace()
 
             matched_loss = self._compute_matched_loss(pred, target)
-            x = (self.epoch / self.epochs - params.loss_transition_start) * params.loss_transition_sharpness
-            # print(f'self.epoch={self.epoch}, x={x}')
-            alpha = torch.sigmoid(torch.tensor(x))  # Sigmoid transition
-            # print(f'self.epoch={self.epoch}, alpha={alpha}')
 
-            total_loss = (1 - alpha) * bs_mse_loss + alpha * matched_loss
-            # total_loss = (1 - alpha) * bs_mse_loss
-
+            total_loss = (1 - params.loss_alpha) * bs_mse_loss + params.loss_alpha * matched_loss
         else:
             total_loss = bs_mse_loss
                 
         return total_loss
+    
+
            
     def _compute_matched_loss(self, pred, target):
         """
