@@ -327,7 +327,7 @@ def _train_impl(device, args, params, is_distributed=False):
     bs_calc = BispectrumCalculator(args.K, args.N, 'cpu')
     print('Set train data')
 
-    train_dataset = create_dataset(device, args.train_data_size, args.K, args.N,
+    train_dataset = create_dataset(args.train_data_size, args.K, args.N,
                                    False, args.data_mode,
                                    folder_read, bs_calc,
                                    args.sigma)
@@ -336,7 +336,7 @@ def _train_impl(device, args, params, is_distributed=False):
     # Set validation dataset and dataloader 
     print('Set validation data')
     
-    val_dataset = create_dataset(device, args.val_data_size, args.K, args.N,
+    val_dataset = create_dataset(args.val_data_size, args.K, args.N,
                                  args.read_baseline, 'fixed',
                                  folder_read, bs_calc,
                                  args.sigma)
@@ -364,13 +364,10 @@ def _train_impl(device, args, params, is_distributed=False):
     # Initialize trainer
     trainer = Trainer(model=model, 
                       train_loader=train_loader, 
-                      val_loader=val_loader, 
-                      train_dataset=train_dataset, 
-                      val_dataset=val_dataset, 
+                      val_loader=val_loader,
                       wandb_flag=wandb_flag,
                       device=device,
                       optimizer=optimizer,
-                      optimizer_name=args.optimizer,
                       scheduler=scheduler,
                       scheduler_name=args.scheduler,
                       folder_write=folder_write,
@@ -389,7 +386,7 @@ def _train_impl(device, args, params, is_distributed=False):
     trainer.run()
     
     if device == 0:
-       	end_time = time.time()
+        end_time = time.time()
   
         print(f"Time taken to train in {os.path.basename(__file__)}:", 
               end_time - start_time, "seconds")

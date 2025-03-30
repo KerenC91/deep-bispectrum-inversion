@@ -32,7 +32,6 @@ def clculate_bispectrum_efficient(x, normalize=False):
     return Bx
 
 
-
 class BispectrumCalculator(nn.Module):
     def __init__(self, targets_count, target_len, device):
         super().__init__()
@@ -52,76 +51,27 @@ class BispectrumCalculator(nn.Module):
         return source, target 
     # target: signal 1Xtarget_len
     # source: bs     2Xtarget_lenXtarget_len
+
     def forward(self, target, method="average"):
         batch_size = target.shape[0]
-        # Iterate over the batch dimension using indexing
-        # if method == "sum":#Unused
-        #     source = torch.zeros(batch_size, self.targets_count, self.channels, self.height, self.width).to(self.device)
-      
-        #     for i in range(batch_size):
-        #         for j in range(self.targets_count):
-        #             source[i][j], target[i][j] = self._create_data(target[i][j])
         if method == "batched":
             source = torch.zeros(batch_size, self.channels, self.height, self.width).to(self.device)
       
             for i in range(batch_size):
                 source[i], target[i] = self._create_data(target[i])
-        else: #average
+        else:  # average
             source = torch.zeros(batch_size, self.channels, self.height, self.width).to(self.device)
-            s = torch.zeros(self.channels, self.height, self.width).to(self.device)
-            
+
             for i in range(batch_size):
                 for j in range(self.targets_count):
                     s, target[i][j] = self._create_data(target[i][j])
                     source[i] += s.to(self.device)
                 source[i] /= self.targets_count            
-            #add for sum loss metric
+
         return source, target  # Stack processed vectors
+          
 
-  
-   
 def align_to_reference(x, xref, force_copy=False):
-    """
-    Aligns a signal (x) to a reference signal (xref) using circular shift.
-    
-    Args:
-        x: A numpy array of the signal to be aligned.
-        xref: A numpy array of the reference signal.
-    
-    Returns:
-        A numpy array of the aligned signal.
-    """
-    
-    # Check if input arrays have the same size
-    assert x.shape == xref.shape, "x and xref must have identical size"
-    assert len(x.shape) == 1, "x shape is greater than 1 dim"
-    org_shape = x.shape
-    
-    # Reshape to column vectors
-    x = x.flatten()
-    xref = xref.flatten()
-    
-    with torch.autocast(device_type=device_type, enabled=False):
-        x = x.to(torch.float32, copy=force_copy)
-        xref = xref.to(torch.float32, copy=force_copy)
-        # Compute FFTs
-        x_fft = torch.fft.fft(x)
-        xref_fft = torch.fft.fft(xref)
-        
-        # Compute correlation using inverse FFT of complex conjugate product
-        correlation_x_xref = torch.real(torch.fft.ifft(torch.conj(x_fft) * xref_fft))
-    
-    # Find index of maximum correlation
-    ind = torch.argmax(correlation_x_xref).item()
-    
-    # Perform circular shift
-    x_aligned = torch.roll(x, ind)
-    
-    return x_aligned.reshape(org_shape), ind
-           
-
-
-def align_to_reference_batched(x, xref, force_copy=False):
     """
     Aligns each signal in batch x to its corresponding xref using circular shift.
     
@@ -150,6 +100,7 @@ def align_to_reference_batched(x, xref, force_copy=False):
 
     return x_aligned, shift_inds
 
+
 def compute_cost_matrix(pred, target, bs_calc, loss_criterion='mse', fp16=False):
     """
     Compute the KxK cost matrix where each entry (i, j) is the minimal L2 distance
@@ -163,7 +114,7 @@ def compute_cost_matrix(pred, target, bs_calc, loss_criterion='mse', fp16=False)
             pred_signal = pred[:, j, :]  # shape (B, N)
             target_signal = target[:, i, :]  # shape (B, N)
             if loss_criterion == "mse":
-                aligned_pred, _ = align_to_reference_batched(pred_signal, target_signal, fp16)
+                aligned_pred, _ = align_to_reference(pred_signal, target_signal, fp16)
                 cost_matrix[:, i, j] = torch.norm(aligned_pred - target_signal, dim=1)**2 / torch.norm(target_signal, dim=1)**2
             else: # self.loss_criterion == "bs_mse"
                 bs_pred, _ = bs_calc(pred_signal, "batched") # shape (B, 2, N, N)

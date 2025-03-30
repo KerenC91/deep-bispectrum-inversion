@@ -12,8 +12,6 @@ import numpy as np
 from torch.utils.data.distributed import DistributedSampler
 
 
-
-
 class StandardGaussianDataset(Dataset):
     
     def __init__(self, source, target):
@@ -21,33 +19,23 @@ class StandardGaussianDataset(Dataset):
         self.target = target
         self.source = source
         self.data_size = self.__len__()
-            
         
     def __len__(self):
         return self.target.size(0)
     
     def __getitem__(self, idx):
-
         return idx, (self.source[idx], self.target[idx])
 
-
-def read_tensor_from_matlab(file, in_train_main = False):
-    if in_train_main:
-        x = np.loadtxt(file, delimiter=" ")
-        x = torch.tensor(x).unsqueeze(0)
-    else:
-        x = np.loadtxt(file, delimiter=" ")
-        x = torch.tensor(x)
-    return x
 
 def read_signal(folder, k, K, label='x_true'):
     if K > 1:
         sample_path = os.path.join(folder, f'{label}_{k+1}.csv')
-        target = read_tensor_from_matlab(sample_path, True)  
     else:
         sample_path = os.path.join(folder, f'{label}.csv')
-        target = read_tensor_from_matlab(sample_path, True)    
-    return target  
+    target = np.loadtxt(sample_path, delimiter=" ")
+    target = torch.tensor(target).unsqueeze(0)
+
+    return target
 
 
 def read_sample_from_baseline(folder_read, data_size, K, N, label='x_true'):
@@ -64,9 +52,9 @@ def read_sample_from_baseline(folder_read, data_size, K, N, label='x_true'):
     return target
 
 def read_dataset_from_baseline(folder_read, data_size, K, N, sigma, label="x_true"):
-    target = read_sample_from_baseline(folder_read, data_size, K, N)
+    target = read_sample_from_baseline(folder_read, data_size, K, N, label)
     if sigma:
-        data += sigma * torch.randn(data_size, K, N) # seems impossible to read from data, since it is a mixture of both K signals
+        data = target + sigma * torch.randn(data_size, K, N) # seems impossible to read from data, since it is a mixture of both K signals
     else:
         data = target  
     
@@ -85,13 +73,14 @@ def generate_dataset(data_mode, data_size, K, N, sigma):
     
     return data, target
 
-def create_dataset(device, data_size, K, N, read_baseline, data_mode, 
-                   folder_read, bs_calc, sigma = 0.):
+
+def create_dataset(data_size, K, N, read_baseline, data_mode,
+                   folder_read, bs_calc, sigma=0., label="x_true"):
     print(f'read_baseline={read_baseline}, data mode={data_mode}')
     if read_baseline: # in val dataset
-        data, target = read_dataset_from_baseline(folder_read, data_size, K, N, sigma)
+        data, target = read_dataset_from_baseline(folder_read, data_size, K, N, sigma, label)
     else:
-        data, target = generate_dataset(data_mode, data_size, K, N, sigma)
+        data, target = generate_dataset(data_mode, data_size, K, N, sigma, label)
     
     source, data = bs_calc(data)        
     dataset = StandardGaussianDataset(source, target)

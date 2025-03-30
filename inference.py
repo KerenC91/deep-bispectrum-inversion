@@ -28,7 +28,7 @@ sys.path.append(f'{parent_dir}/config')
 import torch
 import matplotlib.pyplot as plt
 from utils.utils import align_to_reference, BispectrumCalculator, compute_cost_matrix, greedy_match
-from train_main import get_model, load_model_safely
+from train_main import get_model
 from dataset import read_dataset_from_baseline, create_dataset
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
@@ -38,7 +38,7 @@ import argparse
 # torch.manual_seed(234)
 
 
-def evaluate(device, dataloader, baseline, model, bs_calc, args, params, output_path):
+def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
 
     avg_err = 0.
     
@@ -97,7 +97,8 @@ def plot_comparison(i, k, folder_write, s_k, s_k_pred):
     plt.legend()
     plt.savefig(fig_path)        
     plt.close()   
-        
+
+
 def main(args, params, model_dir, data_dir):
 
     # Set device
@@ -107,15 +108,14 @@ def main(args, params, model_dir, data_dir):
     bs_calc = BispectrumCalculator(args.K, args.N, device).to('cpu')
     
     if os.path.exists(data_dir):
-        print(f'Reading baseline dataset...')
+        print(f'Reading dataset from baseline folder...')
         read_baseline = True
     else:
         print(f'Warning: data_dir does not exist: {data_dir}, creating a new dataset.')
         read_baseline = False
         
     # Create test dataset
-    dataset = create_dataset(device, 
-                             args.data_size, 
+    dataset = create_dataset(args.data_size,
                              args.K, 
                              args.N, 
                              read_baseline, 
@@ -133,15 +133,18 @@ def main(args, params, model_dir, data_dir):
                             )
 
     # Read baseline data
-    baseline = read_dataset_from_baseline(data_dir, 
-                                          args.data_size, 
-                                          args.K, 
-                                          args.N, 
-                                          args.sigma,
-                                          'x_est')
-    
-    # Set model path
-    model_path = os.path.join(model_dir,'ckp.pt')
+    if read_baseline:
+        baseline = read_dataset_from_baseline(data_dir,
+                                              args.data_size,
+                                              args.K,
+                                              args.N,
+                                              args.sigma,
+                                              "x_est")
+    else:
+        baseline = None
+
+        # Set model path
+    model_path = os.path.join(model_dir, 'ckp.pt')
 
     # Load the model   
     model = get_model(device, args, params)
@@ -153,7 +156,7 @@ def main(args, params, model_dir, data_dir):
     model.to(device)    
     
     with torch.no_grad():
-        evaluate(device, dataloader, baseline, model, bs_calc, args=args, params=params, output_path=model_dir)
+        evaluate(device, dataloader, baseline, model, bs_calc, args=args, output_path=model_dir)
 
     
 if __name__ == '__main__':
