@@ -1,7 +1,7 @@
 import os
 import wandb
 import torch
-from utils.utils import BispectrumCalculator, BatchAligneToReference, compute_cost_matrix, greedy_match
+from utils.utils import BispectrumCalculator, compute_cost_matrix, greedy_match
 from config.params import params
 import numpy as np
 

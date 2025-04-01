@@ -83,8 +83,15 @@ def align_to_reference(x, xref, force_copy=False):
         x_aligned: Tensor of shape (B, N)
         shift_inds: LongTensor of shape (B,)
     """
-    assert x.shape == xref.shape and x.ndim == 2
-    B, N = x.shape
+    assert x.shape == xref.shape# and x.ndim == 2
+    
+    shape = x.shape
+    
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
+        xref = xref.unsqueeze(0)
+
+    B, _ = x.shape
 
     with torch.autocast(device_type=device_type, enabled=False):
         x = x.to(torch.float32, copy=force_copy)
@@ -95,10 +102,10 @@ def align_to_reference(x, xref, force_copy=False):
         corr = torch.real(torch.fft.ifft(torch.conj(x_fft) * xref_fft, dim=-1))
 
         shift_inds = torch.argmax(corr, dim=-1)  # shape (B,)
-
     x_aligned = torch.stack([torch.roll(x[b], shifts=int(shift_inds[b]), dims=0) for b in range(B)], dim=0)
 
-    return x_aligned, shift_inds
+
+    return x_aligned.view(shape), shift_inds
 
 
 def compute_cost_matrix(pred, target, bs_calc, loss_criterion='mse', fp16=False):

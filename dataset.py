@@ -11,7 +11,6 @@ import torch
 import numpy as np
 from torch.utils.data.distributed import DistributedSampler
 
-
 class StandardGaussianDataset(Dataset):
     
     def __init__(self, source, target):
@@ -33,12 +32,13 @@ def read_signal(folder, k, K, label='x_true'):
     else:
         sample_path = os.path.join(folder, f'{label}.csv')
     target = np.loadtxt(sample_path, delimiter=" ")
-    target = torch.tensor(target).unsqueeze(0)
-
+    target = torch.tensor(target)
+    
     return target
 
 
-def read_sample_from_baseline(folder_read, data_size, K, N, label='x_true'):
+def read_samples_from_baseline(folder_read, data_size, K, N, label='x_true'):
+
     data_size = min(data_size, len(os.listdir(folder_read)))
     target = torch.zeros(data_size, K, N)
 
@@ -46,13 +46,14 @@ def read_sample_from_baseline(folder_read, data_size, K, N, label='x_true'):
 
     for i in range(data_size):
         folder = os.path.join(folder_read, f'sample{i}')
-        for j in range(K):
-            target[i][j] = read_signal(folder, j, K, label)   
-    
+        for k in range(K):
+            signal = read_signal(folder, k, K, label)
+            target[i][k] = signal   
     return target
 
 def read_dataset_from_baseline(folder_read, data_size, K, N, sigma, label="x_true"):
-    target = read_sample_from_baseline(folder_read, data_size, K, N, label)
+    target = read_samples_from_baseline(folder_read, data_size, K, N, label)
+
     if sigma:
         data = target + sigma * torch.randn(data_size, K, N) # seems impossible to read from data, since it is a mixture of both K signals
     else:
@@ -80,7 +81,7 @@ def create_dataset(data_size, K, N, read_baseline, data_mode,
     if read_baseline: # in val dataset
         data, target = read_dataset_from_baseline(folder_read, data_size, K, N, sigma, label)
     else:
-        data, target = generate_dataset(data_mode, data_size, K, N, sigma, label)
+        data, target = generate_dataset(data_mode, data_size, K, N, sigma)
     
     source, data = bs_calc(data)        
     dataset = StandardGaussianDataset(source, target)

@@ -41,7 +41,7 @@ import argparse
 def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
 
     avg_err = 0.
-    
+       
     # loop over signals
     for idx, (source, target) in dataloader:
     
@@ -59,13 +59,23 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
         
         # Compute matched loss
         cost_matrix = compute_cost_matrix(output, target, bs_calc)
-        matches = greedy_match(cost_matrix)  # Get matched pairs
+        matches = greedy_match(cost_matrix)[0]  # Get matched pairs
         
+        if baseline is not None:
+            bcost_matrix = compute_cost_matrix(baseline[i].unsqueeze(0), target, bs_calc)
+            bmatches = greedy_match(bcost_matrix)[0]  # Get matched pairs
+            matches = match_inidices_to_baseline(matches, bmatches)
+
         avg_err_k = 0.
-        for k, (l, j) in enumerate(matches[0], start=1):
-            aligned_output, _ = align_to_reference(output[0][j], target[0][l])
-            avg_err_k += cost_matrix[0, l, j].item()
-            plot_comparison(i, k, folder_write, target[0][l], aligned_output)
+        for k, inds in enumerate(matches, start=1):
+            aligned_output, _ = align_to_reference(output[0][inds[1]], target[0][inds[0]])
+            avg_err_k += cost_matrix[0, inds[0], inds[1]].item()
+            if baseline is not None:
+                # Get index fitted to target in place inds[0]
+                aligned_baseline, _ = align_to_reference(baseline[i][inds[2]], target[0][inds[0]])
+            else:
+                aligned_baseline = None
+            plot_comparison(i, k, folder_write, target[0][inds[0]], aligned_output, aligned_baseline)
         
         rel_error = avg_err_k / args.K
         rel_error_X_path = os.path.join(folder_write, 'rel_error_X.csv')
@@ -79,8 +89,36 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
     print(f'avg err={avg_err:.08f}')   
     np.savetxt(f'{output_path}/avg_err.csv', [avg_err])     
          
+def match_inidices_to_baseline(ot_matches, bt_matches):
+    '''
+    Parameters
+    ----------
+    ot_matches : list of length K, containing (i, j) match indices for target and output respectively
+    bt_matches : list of length K, containing (i, j) match indices for target and baseline respectively
+        DESCRIPTION.
+    
+    Returns a unified list of matches
+    -------
+    None.
+    
+    '''
+    matches = []
+    K = len(ot_matches)
+    used_ks = set()
+    
+    for k1 in range(K): #looping over ot_matches
+        for k2 in range(K): #looping over bt_matches
+            if k2 in used_ks: 
+                continue
+            if ot_matches[k1][0] == ot_matches[k2][0]: #looking for a match in target index
+                matches.append((ot_matches[k1][0], ot_matches[k1][1], ot_matches[k2][1]))
+                used_ks.add(k2)
+                break
+    
+    return matches  # list of length K of (i, j, l) tuples
+
         
-def plot_comparison(i, k, folder_write, s_k, s_k_pred):
+def plot_comparison(i, k, folder_write, s_k, s_k_pred, s_baseline):
     folder_k = os.path.join(folder_write, f'{k}')
     if not os.path.exists(folder_k):
         os.mkdir(folder_k)
@@ -91,6 +129,9 @@ def plot_comparison(i, k, folder_write, s_k, s_k_pred):
     plt.title(f'Comparison between s{k}, s{k}_pred, sample{i + 1}')
     plt.plot(s_k.cpu().detach().numpy(), label=f's{k}', color='tab:blue')
     plt.plot(s_k_pred.cpu().detach().numpy(), label=f's{k}_pred', color='tab:orange', linestyle='dashed')
+    if s_baseline is not None:
+        plt.plot(s_baseline.cpu().detach().numpy(), label=f's{k}_baseline', color='tab:green', linestyle='dashed')
+
     
     plt.ylabel('signal')
     plt.xlabel('time')
@@ -134,12 +175,13 @@ def main(args, params, model_dir, data_dir):
 
     # Read baseline data
     if read_baseline:
-        baseline = read_dataset_from_baseline(data_dir,
+        baseline, _ = read_dataset_from_baseline(data_dir,
                                               args.data_size,
                                               args.K,
                                               args.N,
                                               args.sigma,
                                               "x_est")
+        baseline = baseline.to(device)
     else:
         baseline = None
 

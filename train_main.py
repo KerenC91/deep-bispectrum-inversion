@@ -25,7 +25,7 @@ def get_model(device, args, params):
          pre_conv_channels=params.pre_conv_channels,
          post_residuals=params.post_residuals,
          reduce_height=params.reduce_height,
-         embed_dim=params.embed_dim,
+         embed_dim=args.embed_dim,
          activation=params.activation,
          window_size = args.window_size,
          patch_size = params.patch_size,
@@ -229,10 +229,10 @@ def create_test_name(args):
                     f'tr{args.train_data_size}_val{args.val_data_size}_'\
                     f'lr_{args.lr:.1e}_{args.optimizer}_'
     if args.scheduler != 'None':
-        test_str += f'{args.scheduler}_'
+        test_str += f'{args.scheduler}'
     
     # Append user defined test name
-    test_str += f'{args.run_output_suffix}'
+    test_str += f'_{args.run_output_suffix}'
     
     return test_str
 
