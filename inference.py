@@ -28,7 +28,7 @@ sys.path.append(f'{parent_dir}/config')
 import torch
 import matplotlib.pyplot as plt
 from utils.utils import align_to_reference, BispectrumCalculator, compute_cost_matrix, greedy_match
-from train_main import get_model
+from train_main import init_model
 from dataset import read_dataset_from_baseline, create_dataset
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
@@ -189,7 +189,7 @@ def main(args, params, model_dir, data_dir):
     model_path = os.path.join(model_dir, 'ckp.pt')
 
     # Load the model   
-    model = get_model(device, args, params)
+    model = init_model(device, args, params)
     
     # Load the checkpoint
     checkpoint = torch.load(model_path, map_location=device)

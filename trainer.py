@@ -10,7 +10,6 @@ class Trainer:
     def __init__(self, model,
                  train_loader,
                  val_loader,
-                 wandb_flag,
                  device,
                  optimizer,
                  scheduler,
@@ -30,7 +29,7 @@ class Trainer:
         self.print_every = args.print_every
         self.model = model
         self.is_distributed = is_distributed
-        self.wandb_flag = wandb_flag
+        self.wandb_flag = args.wandb
         self.start_epoch = start_epoch
         self.epoch = 0
         self.prev_val_loss = torch.inf
