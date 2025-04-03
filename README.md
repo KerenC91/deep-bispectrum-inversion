@@ -8,20 +8,20 @@ Activate the environment
 # Usage
 # Training 
 Example run:
-<pre> python --L 24 --K 2 --batch_size 100 --epochs 3000 --train_data_size 5000 --val_data_size 100 --data_mode random --scheduler OneCycleLR --optimizer AdamW --lr 4e-4 --loss_criterion mse --early_stopping --window_size 6 --num_heads 2 2 --depths 6 6 </pre>
+<pre> python main.py --L 24 --K 2 --batch_size 100 --epochs 3000 --train_data_size 5000 --val_data_size 100 --data_mode random --scheduler OneCycleLR --optimizer AdamW --lr 4e-4 --loss_criterion mse --early_stopping --window_size 6 --num_heads 2 2 --depths 6 6 </pre>
 Example for running with baseline data folder[^1]
-<pre> python --L 24 --K 2 --batch_size 100 --epochs 3000 --train_data_size 5000 --val_data_size 100 --data_mode random --scheduler OneCycleLR --optimizer AdamW --lr 4e-4 --loss_criterion mse --early_stopping --window_size 6 --num_heads 2 2 --depths 6 6 --read_baseline --baseline_data baseline_K_2_L_24_sz_100 </pre>
+<pre> python main.py --L 24 --K 2 --batch_size 100 --epochs 3000 --train_data_size 5000 --val_data_size 100 --data_mode random --scheduler OneCycleLR --optimizer AdamW --lr 4e-4 --loss_criterion mse --early_stopping --window_size 6 --num_heads 2 2 --depths 6 6 --read_baseline --baseline_data baseline_K_2_L_24_sz_100 </pre>
 
 Configure parameters in config/params.py as needed.
 
 # Training with DDP
 Run with Distributed Data Parallel. Running with all available GPUs by default. 
-<pre> torchrun --L 24 --K 2 --batch_size 100 --epochs 3000 --train_data_size 5000 --val_data_size 100 --data_mode random --scheduler OneCycleLR --optimizer AdamW --lr 4e-4 --loss_criterion mse --early_stopping --window_size 6 --num_heads 2 2 --depths 6 6 </pre>
+<pre> torchrun main.py --L 24 --K 2 --batch_size 100 --epochs 3000 --train_data_size 5000 --val_data_size 100 --data_mode random --scheduler OneCycleLR --optimizer AdamW --lr 4e-4 --loss_criterion mse --early_stopping --window_size 6 --num_heads 2 2 --depths 6 6 </pre>
 
 # Inference
 After training, evalute the model visually and quantitatively. The output is saved into model_dir. 
 
-<pre> python --model_dir <model_folder_path> --data_dir <data_folder_path> </pre>
+<pre> python inference.py --model_dir <model_folder_path> --data_dir <data_folder_path> </pre>
 
 Configure parameters in config/inference_params.py as needed (in inference, it also contains the cmd arguments).
 
