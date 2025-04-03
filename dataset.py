@@ -11,6 +11,7 @@ import torch
 import numpy as np
 from torch.utils.data.distributed import DistributedSampler
 
+
 class StandardGaussianDataset(Dataset):
     
     def __init__(self, source, target):
@@ -39,7 +40,7 @@ def read_signal(folder, k, K, label='x_true'):
 
 def read_bispectrum(folder, L):
     sample_path = os.path.join(folder, 'b_mixed.csv')
-    source = np.loadtxt(sample_path, delimiter=" ")
+    source = np.loadtxt(sample_path, delimiter=",")
     source = np.reshape(source, (2, L, L), order='F')
     source = torch.tensor(source)
 
@@ -53,17 +54,20 @@ def read_samples_from_baseline(folder_read, data_size, K, L, label='x_true'):
     print(f'The updated data size is {data_size}')
 
     for i in range(data_size):
-        folder = os.path.join(folder_read, f'sample{i}')
+        sample_path = os.path.join(folder_read, f'sample{i}')
+        
+        # Read the bispectrum
+        bs = read_bispectrum(sample_path, L)
+        source[i] = bs
+        # Read the underlying targets
         for k in range(K):
-            signal = read_signal(folder, k, K, label)
-            bs = read_bispectrum(folder, L)
+            signal = read_signal(sample_path, k, K, label)
             target[i][k] = signal
-            source[i] = bs
-    return target
+
+    return source, target
 
 def read_dataset_from_baseline(folder_read, data_size, K, L, sigma, label="x_true"):
-    target = read_samples_from_baseline(folder_read, data_size, K, L, label)
-    source =
+    source, target = read_samples_from_baseline(folder_read, data_size, K, L, label)
 
     return source, target
 
