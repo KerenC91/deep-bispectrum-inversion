@@ -209,7 +209,7 @@ def create_test_name(args):
     test_str = f'K{args.K}_N{args.L}_'
     
     if not args.disable_transformers:
-        test_str += f'win{args.window_size}_
+        test_str += f'win{args.window_size}_'
     
     test_str += f'bs{args.batch_size}_ep{args.epochs}_'\
                     f'tr{args.train_data_size}_val{args.val_data_size}_'\
