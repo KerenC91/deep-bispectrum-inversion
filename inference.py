@@ -146,7 +146,7 @@ def main(args, params, model_dir, data_dir):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
     # Init helpers
-    bs_calc = BispectrumCalculator(args.K, args.N, device).to('cpu')
+    bs_calc = BispectrumCalculator(args.K, args.L, device).to('cpu')
     
     if os.path.exists(data_dir):
         print(f'Reading dataset from baseline folder...')
@@ -158,7 +158,7 @@ def main(args, params, model_dir, data_dir):
     # Create test dataset
     dataset = create_dataset(args.data_size,
                              args.K, 
-                             args.N, 
+                             args.L, 
                              read_baseline, 
                              args.data_mode, 
                              data_dir,
@@ -178,7 +178,7 @@ def main(args, params, model_dir, data_dir):
         baseline, _ = read_dataset_from_baseline(data_dir,
                                               args.data_size,
                                               args.K,
-                                              args.N,
+                                              args.L,
                                               args.sigma,
                                               "x_est")
         baseline = baseline.to(device)

@@ -10,7 +10,7 @@ def clculate_bispectrum_efficient(x, normalize=False):
 
     Parameters
     ----------
-    x : torch N size, float
+    x : torch L size, float
         signal.
     Returns
     -------
@@ -76,11 +76,11 @@ def align_to_reference(x, xref, force_copy=False):
     Aligns each signal in batch x to its corresponding xref using circular shift.
     
     Args:
-        x: Tensor of shape (B, N)
-        xref: Tensor of shape (B, N)
+        x: Tensor of shape (B, L)
+        xref: Tensor of shape (B, L)
     
     Returns:
-        x_aligned: Tensor of shape (B, N)
+        x_aligned: Tensor of shape (B, L)
         shift_inds: LongTensor of shape (B,)
     """
     assert x.shape == xref.shape# and x.ndim == 2
@@ -113,18 +113,18 @@ def compute_cost_matrix(pred, target, bs_calc, loss_criterion='mse', fp16=False)
     Compute the KxK cost matrix where each entry (i, j) is the minimal L2 distance
     between x_i and the best circularly shifted x_pred_j.
     """
-    B, K, N = pred.shape
+    B, K, L = pred.shape
     cost_matrix = torch.zeros((B, K, K))
     
     for i in range(K):
         for j in range(K):
-            pred_signal = pred[:, j, :]  # shape (B, N)
-            target_signal = target[:, i, :]  # shape (B, N)
+            pred_signal = pred[:, j, :]  # shape (B, L)
+            target_signal = target[:, i, :]  # shape (B, L)
             if loss_criterion == "mse":
                 aligned_pred, _ = align_to_reference(pred_signal, target_signal, fp16)
                 cost_matrix[:, i, j] = torch.norm(aligned_pred - target_signal, dim=1)**2 / torch.norm(target_signal, dim=1)**2
             else: # self.loss_criterion == "bs_mse"
-                bs_pred, _ = bs_calc(pred_signal, "batched") # shape (B, 2, N, N)
+                bs_pred, _ = bs_calc(pred_signal, "batched") # shape (B, 2, L, L)
                 bs_target, _ = bs_calc(target_signal, "batched") # maybe its already calculated
                 sh = bs_pred.shape
                 cost_matrix[:, i, j] = torch.norm((bs_pred - bs_target).view(sh[0], -1), dim=-1)**2 / \

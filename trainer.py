@@ -23,7 +23,7 @@ class Trainer:
         self.val_loader = val_loader
         self.batch_size = args.batch_size
         self.epochs = args.epochs
-        self.target_len = args.N
+        self.target_len = args.L
         self.signals_count = args.K
         self.save_every = args.save_every
         self.print_every = args.print_every

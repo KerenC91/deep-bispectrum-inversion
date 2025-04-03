@@ -22,8 +22,8 @@ def is_torchrun():
 def main(args):
     replica_count = device_count() if is_torchrun() else 1
     
-    if args.N % args.window_size != 0:
-        raise ValueError(f'Signal size {args.N} is not evenly divisble by window size {args.window_size}. ' 
+    if args.L % args.window_size != 0:
+        raise ValueError(f'Signal size {args.L} is not evenly divisble by window size {args.window_size}. ' 
                          f'Please choose a suitable window size.')
     if replica_count > 1:
         if args.batch_size % replica_count != 0:
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Deep Bispectrum Inversion.')
     
     # Core settings
-    parser.add_argument('--N', type=int, default=10, help='Signal size in the dataset.')
+    parser.add_argument('--L', type=int, default=10, help='Signal length in the dataset.')
     parser.add_argument('--K', type=int, default=1, help='Number of signals to reconstruct from.')
     parser.add_argument('--batch_size', type=int, default=1, help='Mini-Batch size.')
     parser.add_argument('--epochs', type=int, default=5000, help='Number of training epochs.')
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     # Output and logging
     parser.add_argument('--run_output_suffix', type=str, default='', help='Suffix for output folder name.')
     parser.add_argument('--save_every', type=int, default=5, help='Checkpoint saving interval (in epochs).')
-    parser.add_argument('--print_every', type=int, default=100, help='Print losses every N iterations.')
+    parser.add_argument('--print_every', type=int, default=100, help='Losses printing interval (in epochs).')
     parser.add_argument('--early_stopping', action='store_true',
         help='Enable early stopping. Set stopping parameters in the configuration.')
     

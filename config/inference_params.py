@@ -12,7 +12,7 @@ class DictParams:
 
 # Example usage:
 inference_args = DictParams(
-    N = 24,
+    L = 24,
     K = 2,
     window_size = 6, 
     depths = [6, 6],                      

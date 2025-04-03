@@ -20,7 +20,7 @@ def init_model(device, args, params):
     """Initialize model"""
 
     model = DBIModel(
-         input_len = args.N,
+         input_len = args.L,
          signals_count = args.K,
          pre_residuals=params.pre_residuals,
          pre_conv_channels=params.pre_conv_channels,
@@ -206,7 +206,7 @@ def set_scheduler(scheduler_name, params, optimizer, epochs, lr, len_trainloader
     
 
 def create_test_name(args):
-    test_str = f'K{args.K}_N{args.N}_win{args.window_size}_bs{args.batch_size}_ep{args.epochs}_'\
+    test_str = f'K{args.K}_N{args.L}_win{args.window_size}_bs{args.batch_size}_ep{args.epochs}_'\
                     f'tr{args.train_data_size}_val{args.val_data_size}_'\
                     f'lr_{args.lr:.1e}_{args.optimizer}_'
     if args.scheduler != 'None':
@@ -298,11 +298,11 @@ def train_implementation(device, args, params, is_distributed=False):
     optimizer = set_optimizer(args, params, model)
     
     # Set helpers
-    bs_calc = BispectrumCalculator(args.K, args.N, 'cpu')
+    bs_calc = BispectrumCalculator(args.K, args.L, 'cpu')
     print('Set train data')
     
     # Set train dataset and dataloader
-    train_dataset = create_dataset(args.train_data_size, args.K, args.N,
+    train_dataset = create_dataset(args.train_data_size, args.K, args.L,
                                    False, args.data_mode,
                                    folder_read, bs_calc,
                                    args.sigma)
@@ -311,7 +311,7 @@ def train_implementation(device, args, params, is_distributed=False):
     # Set validation dataset and dataloader 
     print('Set validation data')
     
-    val_dataset = create_dataset(args.val_data_size, args.K, args.N,
+    val_dataset = create_dataset(args.val_data_size, args.K, args.L,
                                  args.read_baseline, 'fixed',
                                  folder_read, bs_calc,
                                  args.sigma)
