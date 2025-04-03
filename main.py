@@ -86,7 +86,7 @@ if __name__ == "__main__":
         'Default: Transformers are enabled.')
     
     # Swin Transformer settings
-    parser.add_argument('--window_size', type=int, default=8, help='Swin Transformer window size.')
+    parser.add_argument('--window_size', type=int, default=6, help='Swin Transformer window size.')
     parser.add_argument('--depths', type=int, nargs='+', default=[6, 6], help='Transformer depths per stage.')
     parser.add_argument('--num_heads', type=int, nargs='+', default=[2, 2], help='Number of attention heads per stage.')
     parser.add_argument('--embed_dim', type=int, default=256, help='Embedding dimension.')
