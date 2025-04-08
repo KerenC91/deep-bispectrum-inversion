@@ -132,7 +132,7 @@ class Trainer:
 
     def _run_epoch_train(self):
         total_loss = 0.
-        for idx, (sources, targets) in self.train_loader:
+        for sources, targets in self.train_loader:
             with torch.autograd.set_detect_anomaly(True):
 
                 # zero grads
@@ -176,7 +176,7 @@ class Trainer:
     def _run_epoch_validate(self):
         total_loss = 0.
 
-        for idx, (sources, targets) in self.val_loader:
+        for sources, targets in self.val_loader:
             with torch.no_grad():
                 # forward pass + loss computation
                 loss = self._run_batch(sources, targets)
