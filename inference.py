@@ -34,14 +34,16 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from config.inference_params import inference_params, inference_args
 import argparse
+import torch.nn.functional as F
 
 # torch.manual_seed(234)
 
 
 def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
 
-    avg_err = 0.
-       
+    avg_rel_mse_err = 0.
+    avg_l1_err = 0.
+    avg_mse_err = 0.
     # loop over signals
     for idx, (source, target) in dataloader:
     
@@ -66,29 +68,51 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
             bmatches = greedy_match(bcost_matrix)[0]  # Get matched pairs
             matches = match_inidices_to_baseline(matches, bmatches)
 
-        avg_err_k = 0.
+        rel_mse_err = 0.
+        l1_err = 0.
+        mse_err = 0.
         for k, inds in enumerate(matches, start=1):
-            aligned_output, _ = align_to_reference(output[0][inds[1]], target[0][inds[0]])
-            avg_err_k += cost_matrix[0, inds[0], inds[1]].item()
+            curr_target = target[0][inds[0]]
+            curr_output = output[0][inds[1]]
+            aligned_output, _ = align_to_reference(curr_output, curr_target)
+            l1_err += F.l1_loss(aligned_output, curr_target, reduction='mean')
+            mse_err += F.mse_loss(aligned_output, curr_target, reduction='mean')
+            rel_mse_err += torch.norm(curr_output - curr_target) ** 2 / torch.norm(curr_target) ** 2
+
             if baseline is not None:
                 # Get index fitted to target in place inds[0]
-                aligned_baseline, _ = align_to_reference(baseline[i][inds[2]], target[0][inds[0]])
+                aligned_baseline, _ = align_to_reference(baseline[i][inds[2]], curr_target)
             else:
                 aligned_baseline = None
-            plot_comparison(i, k, folder_write, target[0][inds[0]], aligned_output, aligned_baseline)
+            plot_comparison(i, k, folder_write, curr_target, aligned_output, aligned_baseline)
         
-        rel_error = avg_err_k / args.K
+        rel_mse_err = rel_mse_err.item() / args.K
+        l1_err = l1_err.item() / args.K
+        mse_err = mse_err.item() / args.K
+        
         rel_error_X_path = os.path.join(folder_write, 'rel_error_X.csv')
-        np.savetxt(rel_error_X_path, [rel_error])
-        print(f'sample{i}, err={rel_error}')  
-        avg_err += rel_error
-        print(f'curent avg={(avg_err/(i+1)):.08f}')      
+        np.savetxt(f'{folder_write}/rel_mse_err.csv', [rel_mse_err])
+        np.savetxt(f'{folder_write}/l1_err.csv', [l1_err])
+        np.savetxt(f'{folder_write}/mse_err.csv', [mse_err])
+
+        print(f'sample{i}, rel_mse_err={rel_mse_err}, l1_err={l1_err}, mse_err={mse_err}')  
+        avg_rel_mse_err += rel_mse_err
+        avg_l1_err += l1_err
+        avg_mse_err += mse_err
+        print(f'curent avg: rel_mse_err={avg_rel_mse_err/(i+1):.08f}, avg_l1_err={avg_l1_err/(i+1):.08f}, ' +
+              f'avg_mse_err={avg_mse_err/(i+1):.08f}')      
     
             
-    avg_err /= args.data_size
-    print(f'avg err={avg_err:.08f}')   
-    np.savetxt(f'{output_path}/avg_err.csv', [avg_err])     
-         
+    avg_rel_mse_err /= args.data_size
+    avg_l1_err /= args.data_size
+    avg_mse_err /= args.data_size
+    
+    print(f'total avg: rel_mse_err={avg_rel_mse_err:.08f}, avg_l1_err={avg_l1_err:.08f},' +
+          f' avg_mse_err={avg_mse_err:.08f}') 
+    np.savetxt(f'{output_path}/avg_rel_mse_err.csv', [avg_rel_mse_err])              
+    np.savetxt(f'{output_path}/avg_l1_err.csv', [avg_l1_err])     
+    np.savetxt(f'{output_path}/avg_mse_err.csv', [avg_mse_err])     
+
 def match_inidices_to_baseline(ot_matches, bt_matches):
     '''
     Parameters
@@ -175,7 +199,7 @@ def main(args, params, model_dir, data_dir):
 
     # Read baseline data
     if read_baseline:
-        baseline, _ = read_dataset_from_baseline(data_dir,
+        _, baseline = read_dataset_from_baseline(data_dir,
                                               args.data_size,
                                               args.K,
                                               args.L,
