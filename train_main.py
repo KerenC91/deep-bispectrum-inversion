@@ -206,7 +206,7 @@ def set_scheduler(scheduler_name, params, optimizer, epochs, lr, len_trainloader
     
 
 def create_test_name(args):
-    test_str = f'K{args.K}_N{args.L}'
+    test_str = f'K{args.K}_L{args.L}'
     
     if not args.disable_transformers:
         test_str += f'_win{args.window_size}'
