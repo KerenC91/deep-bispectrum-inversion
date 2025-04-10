@@ -63,7 +63,8 @@ class Trainer:
         # Compute matched mse loss according to loss criterion
         if self.signals_count > 1:
 
-            matched_loss = self._compute_matched_loss(pred, target)
+            if params.loss_alpha > 0:
+                matched_loss = self._compute_matched_loss(pred, target)
 
             total_loss = (1 - params.loss_alpha) * bs_mse_loss + params.loss_alpha * matched_loss
         else:

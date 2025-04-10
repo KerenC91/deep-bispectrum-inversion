@@ -78,7 +78,9 @@ def generate_dataset(data_mode, data_size, K, L, sigma):
     elif data_mode == 'random':
         # Initialize dataset to zeros and create data on the fly 
         target = torch.zeros(data_size, K, L)
-    data = target
+    
+    data = target.clone()
+    
     if sigma:
         data += sigma * torch.randn(data_size, K, L)
     
