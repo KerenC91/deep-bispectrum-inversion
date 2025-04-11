@@ -66,9 +66,9 @@ class Trainer:
             if params.loss_alpha > 0:
                 matched_loss = self._compute_matched_loss(pred, target)
 
-            total_loss = (1 - params.loss_alpha) * bs_mse_loss + params.loss_alpha * matched_loss
-        else:
-            total_loss = bs_mse_loss
+                total_loss = (1 - params.loss_alpha) * bs_mse_loss + params.loss_alpha * matched_loss
+            else:
+                total_loss = bs_mse_loss
 
         return total_loss
 
