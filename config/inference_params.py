@@ -6,21 +6,18 @@ Created on Mon Feb 17 20:36:09 2025
 @author: kerencohen2
 """
 
-import numpy as np
-import torch
-
-
 class DictParams:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
 # Example usage:
 inference_args = DictParams(
-    N = 24,
+    L = 24,
     K = 2,
     window_size = 6, 
     depths = [6, 6],                      
     num_heads = [2, 2], 
+    embed_dim = 256,
     data_mode = 'random', # 'random' / 'fixed'
     data_size=100,
     disable_transformers = False,
@@ -43,7 +40,6 @@ inference_params = DictParams(
     patch_size=1, #'patch size used in training SwinIR. '
                   #'Just used to differentiate two different settings in Table 2 of the paper. '
                   #'Images are NOT tested patch by patch.'
-    last_ch = 256,
     pre_conv_channels = [8, 32], 
     reduce_height = [4, 3, 3],      
     pre_residuals = 11,

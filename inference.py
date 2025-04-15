@@ -26,24 +26,24 @@ sys.path.append(parent_dir)
 sys.path.append(f'{parent_dir}/config')
 
 import torch
-import torch.nn as nn
 import matplotlib.pyplot as plt
-import argparse
 from utils.utils import align_to_reference, BispectrumCalculator, compute_cost_matrix, greedy_match
-from train_main import get_model, load_model_safely
+from train_main import init_model
 from dataset import read_dataset_from_baseline, create_dataset
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from config.inference_params import inference_params, inference_args
 import argparse
+import torch.nn.functional as F
 
 # torch.manual_seed(234)
 
 
-def evaluate(device, dataloader, baseline, model, bs_calc, args, params, output_path):
+def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
 
-    avg_err = 0.
-    
+    avg_rel_mse_err = 0.
+    avg_l1_err = 0.
+    avg_mse_err = 0.
     # loop over signals
     for idx, (source, target) in dataloader:
     
@@ -61,28 +61,88 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, params, output_
         
         # Compute matched loss
         cost_matrix = compute_cost_matrix(output, target, bs_calc)
-        matches = greedy_match(cost_matrix)  # Get matched pairs
+        matches = greedy_match(cost_matrix)[0]  # Get matched pairs
         
-        avg_err_k = 0.
-        for k, (l, j) in enumerate(matches[0], start=1):
-            aligned_output, _ = align_to_reference(output[0][j], target[0][l])
-            avg_err_k += cost_matrix[0, l, j].item()
-            plot_comparison(i, k, folder_write, target[0][l], aligned_output)
+        if baseline is not None:
+            bcost_matrix = compute_cost_matrix(baseline[i].unsqueeze(0), target, bs_calc)
+            bmatches = greedy_match(bcost_matrix)[0]  # Get matched pairs
+            matches = match_inidices_to_baseline(matches, bmatches)
+
+        rel_mse_err = 0.
+        l1_err = 0.
+        mse_err = 0.
+        for k, inds in enumerate(matches, start=1):
+            curr_target = target[0][inds[0]]
+            curr_output = output[0][inds[1]]
+            aligned_output, _ = align_to_reference(curr_output, curr_target)
+            l1_err += F.l1_loss(aligned_output, curr_target, reduction='mean')
+            mse_err += F.mse_loss(aligned_output, curr_target, reduction='mean')
+            rel_mse_err += torch.norm(curr_output - curr_target) ** 2 / torch.norm(curr_target) ** 2
+
+            if baseline is not None:
+                # Get index fitted to target in place inds[0]
+                aligned_baseline, _ = align_to_reference(baseline[i][inds[2]], curr_target)
+            else:
+                aligned_baseline = None
+            plot_comparison(i, k, folder_write, curr_target, aligned_output, aligned_baseline)
         
-        rel_error = avg_err_k / args.K
+        rel_mse_err = rel_mse_err.item() / args.K
+        l1_err = l1_err.item() / args.K
+        mse_err = mse_err.item() / args.K
+        
         rel_error_X_path = os.path.join(folder_write, 'rel_error_X.csv')
-        np.savetxt(rel_error_X_path, [rel_error])
-        print(f'sample{i}, err={rel_error}')  
-        avg_err += rel_error
-        print(f'curent avg={(avg_err/(i+1)):.08f}')      
+        np.savetxt(f'{folder_write}/rel_mse_err.csv', [rel_mse_err])
+        np.savetxt(f'{folder_write}/l1_err.csv', [l1_err])
+        np.savetxt(f'{folder_write}/mse_err.csv', [mse_err])
+
+        print(f'sample{i}, rel_mse_err={rel_mse_err}, l1_err={l1_err}, mse_err={mse_err}')  
+        avg_rel_mse_err += rel_mse_err
+        avg_l1_err += l1_err
+        avg_mse_err += mse_err
+        print(f'curent avg: rel_mse_err={avg_rel_mse_err/(i+1):.08f}, avg_l1_err={avg_l1_err/(i+1):.08f}, ' +
+              f'avg_mse_err={avg_mse_err/(i+1):.08f}')      
     
             
-    avg_err /= args.data_size
-    print(f'avg err={avg_err:.08f}')   
-    np.savetxt(f'{output_path}/avg_err.csv', [avg_err])     
-         
+    avg_rel_mse_err /= args.data_size
+    avg_l1_err /= args.data_size
+    avg_mse_err /= args.data_size
+    
+    print(f'total avg: rel_mse_err={avg_rel_mse_err:.08f}, avg_l1_err={avg_l1_err:.08f},' +
+          f' avg_mse_err={avg_mse_err:.08f}') 
+    np.savetxt(f'{output_path}/avg_rel_mse_err.csv', [avg_rel_mse_err])              
+    np.savetxt(f'{output_path}/avg_l1_err.csv', [avg_l1_err])     
+    np.savetxt(f'{output_path}/avg_mse_err.csv', [avg_mse_err])     
+
+def match_inidices_to_baseline(ot_matches, bt_matches):
+    '''
+    Parameters
+    ----------
+    ot_matches : list of length K, containing (i, j) match indices for target and output respectively
+    bt_matches : list of length K, containing (i, j) match indices for target and baseline respectively
+        DESCRIPTION.
+    
+    Returns a unified list of matches
+    -------
+    None.
+    
+    '''
+    matches = []
+    K = len(ot_matches)
+    used_ks = set()
+    
+    for k1 in range(K): #looping over ot_matches
+        for k2 in range(K): #looping over bt_matches
+            if k2 in used_ks: 
+                continue
+            if ot_matches[k1][0] == ot_matches[k2][0]: #looking for a match in target index
+                matches.append((ot_matches[k1][0], ot_matches[k1][1], ot_matches[k2][1]))
+                used_ks.add(k2)
+                break
+    
+    return matches  # list of length K of (i, j, l) tuples
+
         
-def plot_comparison(i, k, folder_write, s_k, s_k_pred):
+def plot_comparison(i, k, folder_write, s_k, s_k_pred, s_baseline):
     folder_k = os.path.join(folder_write, f'{k}')
     if not os.path.exists(folder_k):
         os.mkdir(folder_k)
@@ -93,33 +153,36 @@ def plot_comparison(i, k, folder_write, s_k, s_k_pred):
     plt.title(f'Comparison between s{k}, s{k}_pred, sample{i + 1}')
     plt.plot(s_k.cpu().detach().numpy(), label=f's{k}', color='tab:blue')
     plt.plot(s_k_pred.cpu().detach().numpy(), label=f's{k}_pred', color='tab:orange', linestyle='dashed')
+    if s_baseline is not None:
+        plt.plot(s_baseline.cpu().detach().numpy(), label=f's{k}_baseline', color='tab:green', linestyle='dashed')
+
     
     plt.ylabel('signal')
     plt.xlabel('time')
     plt.legend()
     plt.savefig(fig_path)        
     plt.close()   
-        
+
+
 def main(args, params, model_dir, data_dir):
 
     # Set device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
     # Init helpers
-    bs_calc = BispectrumCalculator(args.K, args.N, device).to('cpu')
+    bs_calc = BispectrumCalculator(args.K, args.L, device).to('cpu')
     
     if os.path.exists(data_dir):
-        print(f'Reading baseline dataset...')
+        print(f'Reading dataset from baseline folder...')
         read_baseline = True
     else:
         print(f'Warning: data_dir does not exist: {data_dir}, creating a new dataset.')
         read_baseline = False
         
     # Create test dataset
-    dataset = create_dataset(device, 
-                             args.data_size, 
+    dataset = create_dataset(args.data_size,
                              args.K, 
-                             args.N, 
+                             args.L, 
                              read_baseline, 
                              args.data_mode, 
                              data_dir,
@@ -135,18 +198,22 @@ def main(args, params, model_dir, data_dir):
                             )
 
     # Read baseline data
-    baseline = read_dataset_from_baseline(data_dir, 
-                                          args.data_size, 
-                                          args.K, 
-                                          args.N, 
-                                          args.sigma,
-                                          'x_est')
-    
-    # Set model path
-    model_path = os.path.join(model_dir,'ckp.pt')
+    if read_baseline:
+        _, baseline = read_dataset_from_baseline(data_dir,
+                                              args.data_size,
+                                              args.K,
+                                              args.L,
+                                              args.sigma,
+                                              "x_est")
+        baseline = baseline.to(device)
+    else:
+        baseline = None
+
+        # Set model path
+    model_path = os.path.join(model_dir, 'ckp.pt')
 
     # Load the model   
-    model = get_model(device, args, params)
+    model = init_model(device, args, params)
     
     # Load the checkpoint
     checkpoint = torch.load(model_path, map_location=device)
@@ -155,7 +222,7 @@ def main(args, params, model_dir, data_dir):
     model.to(device)    
     
     with torch.no_grad():
-        evaluate(device, dataloader, baseline, model, bs_calc, args=args, params=params, output_path=model_dir)
+        evaluate(device, dataloader, baseline, model, bs_calc, args=args, output_path=model_dir)
 
     
 if __name__ == '__main__':

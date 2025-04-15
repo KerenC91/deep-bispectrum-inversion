@@ -12,8 +12,6 @@ import numpy as np
 from torch.utils.data.distributed import DistributedSampler
 
 
-
-
 class StandardGaussianDataset(Dataset):
     
     def __init__(self, source, target):
@@ -21,79 +19,83 @@ class StandardGaussianDataset(Dataset):
         self.target = target
         self.source = source
         self.data_size = self.__len__()
-            
         
     def __len__(self):
         return self.target.size(0)
     
     def __getitem__(self, idx):
-
         return idx, (self.source[idx], self.target[idx])
 
-
-def read_tensor_from_matlab(file, in_train_main = False):
-    if in_train_main:
-        x = np.loadtxt(file, delimiter=" ")
-        x = torch.tensor(x).unsqueeze(0)
-    else:
-        x = np.loadtxt(file, delimiter=" ")
-        x = torch.tensor(x)
-    return x
 
 def read_signal(folder, k, K, label='x_true'):
     if K > 1:
         sample_path = os.path.join(folder, f'{label}_{k+1}.csv')
-        target = read_tensor_from_matlab(sample_path, True)  
     else:
         sample_path = os.path.join(folder, f'{label}.csv')
-        target = read_tensor_from_matlab(sample_path, True)    
-    return target  
-
-
-def read_sample_from_baseline(folder_read, data_size, K, N, label='x_true'):
-    data_size = min(data_size, len(os.listdir(folder_read)))
-    target = torch.zeros(data_size, K, N)
-
-    print(f'The updated data size is {data_size}')
-
-    for i in range(data_size):
-        folder = os.path.join(folder_read, f'sample{i}')
-        for j in range(K):
-            target[i][j] = read_signal(folder, j, K, label)   
+    target = np.loadtxt(sample_path, delimiter=" ")
+    target = torch.tensor(target)
     
     return target
 
-def read_dataset_from_baseline(folder_read, data_size, K, N, sigma, label="x_true"):
-    target = read_sample_from_baseline(folder_read, data_size, K, N)
-    if sigma:
-        data += sigma * torch.randn(data_size, K, N) # seems impossible to read from data, since it is a mixture of both K signals
-    else:
-        data = target  
-    
-    return data, target
 
-def generate_dataset(data_mode, data_size, K, N, sigma):
+def read_bispectrum(folder, L):
+    sample_path = os.path.join(folder, 'b_mixed.csv')
+    source = np.loadtxt(sample_path, delimiter=",")
+    source = np.reshape(source, (2, L, L), order='F')
+    source = torch.tensor(source)
+
+    return source
+
+def read_samples_from_baseline(folder_read, data_size, K, L, label='x_true'):
+
+    data_size = min(data_size, len(os.listdir(folder_read)))
+    target = torch.zeros(data_size, K, L)
+    source = torch.zeros(data_size, 2, L, L)
+    print(f'The updated data size is {data_size}')
+
+    for i in range(data_size):
+        sample_path = os.path.join(folder_read, f'sample{i}')
+        
+        # Read the bispectrum
+        bs = read_bispectrum(sample_path, L)
+        source[i] = bs
+        # Read the underlying targets
+        for k in range(K):
+            signal = read_signal(sample_path, k, K, label)
+            target[i][k] = signal
+
+    return source, target
+
+def read_dataset_from_baseline(folder_read, data_size, K, L, sigma, label="x_true"):
+    source, target = read_samples_from_baseline(folder_read, data_size, K, L, label)
+
+    return source, target
+
+def generate_dataset(data_mode, data_size, K, L, sigma):
     if data_mode == 'fixed':
         # Create random dataset
-        target = torch.randn(data_size, K, N)
+        target = torch.randn(data_size, K, L)
     elif data_mode == 'random':
         # Initialize dataset to zeros and create data on the fly 
-        target = torch.zeros(data_size, K, N)
-    data = target
+        target = torch.zeros(data_size, K, L)
+    
+    data = target.clone()
+    
     if sigma:
-        data += sigma * torch.randn(data_size, K, N)
+        data += sigma * torch.randn(data_size, K, L)
     
     return data, target
 
-def create_dataset(device, data_size, K, N, read_baseline, data_mode, 
-                   folder_read, bs_calc, sigma = 0.):
+
+def create_dataset(data_size, K, L, read_baseline, data_mode,
+                   folder_read, bs_calc, sigma=0., label="x_true"):
     print(f'read_baseline={read_baseline}, data mode={data_mode}')
     if read_baseline: # in val dataset
-        data, target = read_dataset_from_baseline(folder_read, data_size, K, N, sigma)
+        source, target = read_dataset_from_baseline(folder_read, data_size, K, L, sigma, label)
     else:
-        data, target = generate_dataset(data_mode, data_size, K, N, sigma)
-    
-    source, data = bs_calc(data)        
+        data, target = generate_dataset(data_mode, data_size, K, L, sigma)
+        source, data = bs_calc(data)
+
     dataset = StandardGaussianDataset(source, target)
 
     return dataset
