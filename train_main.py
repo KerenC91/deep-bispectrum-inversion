@@ -365,7 +365,13 @@ def train_implementation(device, args, params, is_distributed=False):
     # Train and evaluate
     trainer.run()
     
+    # Synchronize all ranks before cleanup
+    if is_distributed:
+        torch.distributed.barrier()
+        
     if device == 0:
+        if args.wandb:
+            wandb.finish()
         end_time = time.time()
   
         print(f"Time taken to train in {os.path.basename(__file__)}:", 
