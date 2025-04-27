@@ -16,8 +16,6 @@ Created on Sun Jul  7 18:46:07 2024
 
 import os
 
-
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 import sys
@@ -36,7 +34,6 @@ from config.inference_params import inference_params, inference_args
 import argparse
 import torch.nn.functional as F
 
-# torch.manual_seed(234)
 
 
 def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
@@ -44,6 +41,15 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
     avg_rel_mse_err = 0.
     avg_l1_err = 0.
     avg_mse_err = 0.
+    min_rel_mse_err = np.inf
+    min_ind = 0.
+    max_rel_mse_err = 0.
+    max_ind = 0.
+
+    b_avg_rel_mse_err = 0.
+    b_avg_l1_err = 0.
+    b_avg_mse_err = 0.
+
     # loop over signals
     for idx, (source, target) in dataloader:
     
@@ -52,7 +58,7 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
         target = target.to(device)
         
         # Set output folder per sample
-        folder_write = os.path.join(output_path, f'sample{i+1}')
+        folder_write = os.path.join(output_path, f'sample{i + 1}')
         if not os.path.exists(folder_write):
             os.mkdir(folder_write)
       
@@ -71,47 +77,89 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
         rel_mse_err = 0.
         l1_err = 0.
         mse_err = 0.
+        b_rel_mse_err = 0.
+        b_l1_err = 0.
+        b_mse_err = 0.
         for k, inds in enumerate(matches, start=1):
             curr_target = target[0][inds[0]]
             curr_output = output[0][inds[1]]
             aligned_output, _ = align_to_reference(curr_output, curr_target)
             l1_err += F.l1_loss(aligned_output, curr_target, reduction='mean')
             mse_err += F.mse_loss(aligned_output, curr_target, reduction='mean')
-            rel_mse_err += torch.norm(curr_output - curr_target) ** 2 / torch.norm(curr_target) ** 2
+            rel_mse_err += torch.norm(aligned_output - curr_target) ** 2 / torch.norm(curr_target) ** 2
 
             if baseline is not None:
                 # Get index fitted to target in place inds[0]
                 aligned_baseline, _ = align_to_reference(baseline[i][inds[2]], curr_target)
+                b_l1_err += F.l1_loss(aligned_baseline, curr_target, reduction='mean')
+                b_mse_err += F.mse_loss(aligned_baseline, curr_target, reduction='mean')
+                b_rel_mse_err += torch.norm(aligned_baseline - curr_target) ** 2 / torch.norm(curr_target) ** 2
             else:
                 aligned_baseline = None
             plot_comparison(i, k, folder_write, curr_target, aligned_output, aligned_baseline)
-        
+
+        # Update target to output error
         rel_mse_err = rel_mse_err.item() / args.K
         l1_err = l1_err.item() / args.K
         mse_err = mse_err.item() / args.K
-        
-        rel_error_X_path = os.path.join(folder_write, 'rel_error_X.csv')
+
+        # Update minimal and maximal errors
+        if rel_mse_err < min_rel_mse_err:
+            min_rel_mse_err = rel_mse_err
+            min_ind = i
+        if rel_mse_err > max_rel_mse_err:
+            max_rel_mse_err = rel_mse_err
+            max_ind = i
+
+        # Write errors to file
         np.savetxt(f'{folder_write}/rel_mse_err.csv', [rel_mse_err])
         np.savetxt(f'{folder_write}/l1_err.csv', [l1_err])
         np.savetxt(f'{folder_write}/mse_err.csv', [mse_err])
 
-        print(f'sample{i}, rel_mse_err={rel_mse_err}, l1_err={l1_err}, mse_err={mse_err}')  
+        if baseline is not None:
+            b_rel_mse_err = b_rel_mse_err.item() / args.K
+            b_l1_err = b_l1_err.item() / args.K
+            b_mse_err = b_mse_err.item() / args.K
+            np.savetxt(f'{folder_write}/b_rel_mse_err.csv', [b_rel_mse_err])
+            np.savetxt(f'{folder_write}/b_l1_err.csv', [b_l1_err])
+            np.savetxt(f'{folder_write}/b_mse_err.csv', [b_mse_err])
+
+        print(f'sample{i + 1}: rel_mse_err={rel_mse_err}, l1_err={l1_err}, mse_err={mse_err}')
         avg_rel_mse_err += rel_mse_err
         avg_l1_err += l1_err
         avg_mse_err += mse_err
-        print(f'curent avg: rel_mse_err={avg_rel_mse_err/(i+1):.08f}, avg_l1_err={avg_l1_err/(i+1):.08f}, ' +
-              f'avg_mse_err={avg_mse_err/(i+1):.08f}')      
-    
-            
+        # print(f'curent avg: rel_mse_err={avg_rel_mse_err/(i+1):.08f}, avg_l1_err={avg_l1_err/(i+1):.08f}, ' +
+        #       f'avg_mse_err={avg_mse_err/(i+1):.08f}')
+        if baseline is not None:
+            b_avg_rel_mse_err += b_rel_mse_err
+            b_avg_l1_err += b_l1_err
+            b_avg_mse_err += b_mse_err
+
     avg_rel_mse_err /= args.data_size
     avg_l1_err /= args.data_size
     avg_mse_err /= args.data_size
-    
+
+    if baseline is not None:
+        b_avg_rel_mse_err /= args.data_size
+        b_avg_l1_err /= args.data_size
+        b_avg_mse_err /= args.data_size
+
     print(f'total avg: rel_mse_err={avg_rel_mse_err:.08f}, avg_l1_err={avg_l1_err:.08f},' +
-          f' avg_mse_err={avg_mse_err:.08f}') 
-    np.savetxt(f'{output_path}/avg_rel_mse_err.csv', [avg_rel_mse_err])              
-    np.savetxt(f'{output_path}/avg_l1_err.csv', [avg_l1_err])     
-    np.savetxt(f'{output_path}/avg_mse_err.csv', [avg_mse_err])     
+          f' avg_mse_err={avg_mse_err:.08f}')
+    print(f'minimal relative mse error={min_rel_mse_err:.08f} obtained by sample{min_ind + 1}')
+    print(f'maximal relative mse error={max_rel_mse_err:.08f} obtained by sample{max_ind + 1}')
+
+    np.savetxt(f'{output_path}/avg_rel_mse_err.csv', [avg_rel_mse_err])
+    np.savetxt(f'{output_path}/avg_l1_err.csv', [avg_l1_err])
+    np.savetxt(f'{output_path}/avg_mse_err.csv', [avg_mse_err])
+
+    if baseline is not None:
+        print(f'b_rel_mse_err={b_avg_rel_mse_err:.08f}, b_avg_l1_err={b_avg_l1_err:.08f},' +
+              f' b_avg_mse_err={b_avg_mse_err:.08f}')
+        np.savetxt(f'{output_path}/b_avg_rel_mse_err.csv', [b_avg_rel_mse_err])
+        np.savetxt(f'{output_path}/b_avg_l1_err.csv', [b_avg_l1_err])
+        np.savetxt(f'{output_path}/b_avg_mse_err.csv', [b_avg_mse_err])
+
 
 def match_inidices_to_baseline(ot_matches, bt_matches):
     '''
@@ -200,11 +248,11 @@ def main(args, params, model_dir, data_dir):
     # Read baseline data
     if read_baseline:
         _, baseline = read_dataset_from_baseline(data_dir,
-                                              args.data_size,
-                                              args.K,
-                                              args.L,
-                                              args.sigma,
-                                              "x_est")
+                                                 args.data_size,
+                                                 args.K,
+                                                 args.L,
+                                                 args.sigma,
+                                                 "x_est")
         baseline = baseline.to(device)
     else:
         baseline = None
@@ -227,8 +275,10 @@ def main(args, params, model_dir, data_dir):
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='runs inference on a dataset')
-    parser.add_argument('--model_dir', type=str, help='directory containing a trained model (or full path to weights.pt file)')#test_folder
-    parser.add_argument('--data_dir', type=str, help='directory containing validation dataset', default='')#baseline_data_folder
+    parser.add_argument('--model_dir', type=str,
+                        help='directory containing a trained model (or full path to weights.pt file)')  # test_folder
+    parser.add_argument('--data_dir', type=str, help='directory containing validation dataset',
+                        default='')  # baseline_data_folder
 
     args = parser.parse_args()
     main(args=inference_args, params=inference_params, model_dir=args.model_dir, data_dir=args.data_dir)
