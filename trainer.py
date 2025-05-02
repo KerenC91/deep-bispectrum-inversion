@@ -61,14 +61,12 @@ class Trainer:
         bs_mse_loss = torch.norm(bs_pred - bs_target) ** 2 / torch.norm(bs_target) ** 2
 
         # Compute matched mse loss according to loss criterion
-        if self.signals_count > 1:
+        if self.signals_count > 1 and params.loss_alpha > 0:
+            matched_loss = self._compute_matched_loss(pred, target)
 
-            if params.loss_alpha > 0:
-                matched_loss = self._compute_matched_loss(pred, target)
-
-                total_loss = (1 - params.loss_alpha) * bs_mse_loss + params.loss_alpha * matched_loss
-            else:
-                total_loss = bs_mse_loss
+            total_loss = (1 - params.loss_alpha) * bs_mse_loss + params.loss_alpha * matched_loss
+        else:
+            total_loss = bs_mse_loss
 
         return total_loss
 
@@ -89,7 +87,7 @@ class Trainer:
         return loss / (B * K)  # Normalize over BxK pairs
 
     def _run_batch(self, source, target, data_mode='fixed'):
-
+        
         if data_mode == 'random':
             target, source = self.generate_random_data()
 
@@ -138,19 +136,24 @@ class Trainer:
 
                 # zero grads
                 self.optimizer.zero_grad()
+                
                 # forward pass + loss computation
                 loss = self._run_batch(sources, targets, self.data_mode)
 
                 # backward passs
                 self.scaler.scale(loss).backward()
+
                 # clip gradients
                 if self.clip:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip)
+
                 # optimizer step
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
+
                 # update avg loss 
                 total_loss += loss.item()
+
                 # scheduler step after batch
                 self.update_scheduler_after_batch()
 
