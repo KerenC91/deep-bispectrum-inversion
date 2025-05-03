@@ -36,19 +36,23 @@ import torch.nn.functional as F
 
 
 
+torch.set_default_dtype(torch.float64)
+
+
 def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
 
     avg_rel_mse_err = 0.
     avg_l1_err = 0.
     avg_mse_err = 0.
-    min_rel_mse_err = np.inf
-    min_ind = 0.
-    max_rel_mse_err = 0.
-    max_ind = 0.
 
     b_avg_rel_mse_err = 0.
     b_avg_l1_err = 0.
     b_avg_mse_err = 0.
+    
+    min_rel_mse_err = np.inf
+    min_ind = 0.
+    max_rel_mse_err = 0.
+    max_ind = 0.
 
     # loop over signals
     for idx, (source, target) in dataloader:
@@ -74,32 +78,35 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
             bmatches = greedy_match(bcost_matrix)[0]  # Get matched pairs
             matches = match_inidices_to_baseline(matches, bmatches)
 
-        rel_mse_err = 0.
         l1_err = 0.
         mse_err = 0.
-        b_rel_mse_err = 0.
         b_l1_err = 0.
         b_mse_err = 0.
+        
         for k, inds in enumerate(matches, start=1):
             curr_target = target[0][inds[0]]
+            output[0][inds[1]], _ = align_to_reference(output[0][inds[1]], curr_target)
             curr_output = output[0][inds[1]]
-            aligned_output, _ = align_to_reference(curr_output, curr_target)
-            l1_err += F.l1_loss(aligned_output, curr_target, reduction='mean')
-            mse_err += F.mse_loss(aligned_output, curr_target, reduction='mean')
-            rel_mse_err += torch.norm(aligned_output - curr_target) ** 2 / torch.norm(curr_target) ** 2
+            l1_err += F.l1_loss(curr_output, curr_target, reduction='mean')
+            mse_err += F.mse_loss(curr_output, curr_target, reduction='mean')
 
             if baseline is not None:
                 # Get index fitted to target in place inds[0]
-                aligned_baseline, _ = align_to_reference(baseline[i][inds[2]], curr_target)
-                b_l1_err += F.l1_loss(aligned_baseline, curr_target, reduction='mean')
-                b_mse_err += F.mse_loss(aligned_baseline, curr_target, reduction='mean')
-                b_rel_mse_err += torch.norm(aligned_baseline - curr_target) ** 2 / torch.norm(curr_target) ** 2
+                # No need to align baseline, already aligned by the baseline code
+                curr_baseline = baseline[i][inds[2]]
+                b_l1_err += F.l1_loss(curr_baseline, curr_target, reduction='mean')
+                b_mse_err += F.mse_loss(curr_baseline, curr_target, reduction='mean')
             else:
                 aligned_baseline = None
-            plot_comparison(i, k, folder_write, curr_target, aligned_output, aligned_baseline)
+            plot_comparison(i, k, folder_write, curr_target, curr_output, curr_baseline)
+        
+        rel_mse_err = torch.norm(output[0] - target[0]) ** 2 / torch.norm(target[0]) ** 2
+        b_rel_mse_err = torch.norm(baseline[i] - target[0]) ** 2 / torch.norm(target[0]) ** 2
+        
+        print(f'sample{i + 1}: rel_mse_err={rel_mse_err:.15f}, b_rel_mse_err={b_rel_mse_err:.15f}, ')
 
         # Update target to output error
-        rel_mse_err = rel_mse_err.item() / args.K
+        rel_mse_err = rel_mse_err.item()
         l1_err = l1_err.item() / args.K
         mse_err = mse_err.item() / args.K
 
@@ -117,19 +124,18 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
         np.savetxt(f'{folder_write}/mse_err.csv', [mse_err])
 
         if baseline is not None:
-            b_rel_mse_err = b_rel_mse_err.item() / args.K
+            b_rel_mse_err = b_rel_mse_err.item()
             b_l1_err = b_l1_err.item() / args.K
             b_mse_err = b_mse_err.item() / args.K
             np.savetxt(f'{folder_write}/b_rel_mse_err.csv', [b_rel_mse_err])
             np.savetxt(f'{folder_write}/b_l1_err.csv', [b_l1_err])
             np.savetxt(f'{folder_write}/b_mse_err.csv', [b_mse_err])
 
-        print(f'sample{i + 1}: rel_mse_err={rel_mse_err}, l1_err={l1_err}, mse_err={mse_err}')
+
         avg_rel_mse_err += rel_mse_err
         avg_l1_err += l1_err
         avg_mse_err += mse_err
-        # print(f'curent avg: rel_mse_err={avg_rel_mse_err/(i+1):.08f}, avg_l1_err={avg_l1_err/(i+1):.08f}, ' +
-        #       f'avg_mse_err={avg_mse_err/(i+1):.08f}')
+
         if baseline is not None:
             b_avg_rel_mse_err += b_rel_mse_err
             b_avg_l1_err += b_l1_err
@@ -143,19 +149,19 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
         b_avg_rel_mse_err /= args.data_size
         b_avg_l1_err /= args.data_size
         b_avg_mse_err /= args.data_size
-
-    print(f'total avg: rel_mse_err={avg_rel_mse_err:.08f}, avg_l1_err={avg_l1_err:.08f},' +
-          f' avg_mse_err={avg_mse_err:.08f}')
-    print(f'minimal relative mse error={min_rel_mse_err:.08f} obtained by sample{min_ind + 1}')
-    print(f'maximal relative mse error={max_rel_mse_err:.08f} obtained by sample{max_ind + 1}')
+        
+    print(f'total avg: avg_rel_mse_err={avg_rel_mse_err:.15f}, avg_l1_err={avg_l1_err:.15f},' +
+          f' avg_mse_err={avg_mse_err:.15f}')
+    print(f'minimal relative mse error={min_rel_mse_err:.15f} obtained by sample{min_ind + 1}')
+    print(f'maximal relative mse error={max_rel_mse_err:.15f} obtained by sample{max_ind + 1}')
 
     np.savetxt(f'{output_path}/avg_rel_mse_err.csv', [avg_rel_mse_err])
     np.savetxt(f'{output_path}/avg_l1_err.csv', [avg_l1_err])
     np.savetxt(f'{output_path}/avg_mse_err.csv', [avg_mse_err])
 
     if baseline is not None:
-        print(f'b_rel_mse_err={b_avg_rel_mse_err:.08f}, b_avg_l1_err={b_avg_l1_err:.08f},' +
-              f' b_avg_mse_err={b_avg_mse_err:.08f}')
+        print(f'baseline total avg: b_avg_rel_mse_err={b_avg_rel_mse_err:.15f}, b_avg_l1_err={b_avg_l1_err:.15f},' +
+              f' b_avg_mse_err={b_avg_mse_err:.15f}')
         np.savetxt(f'{output_path}/b_avg_rel_mse_err.csv', [b_avg_rel_mse_err])
         np.savetxt(f'{output_path}/b_avg_l1_err.csv', [b_avg_l1_err])
         np.savetxt(f'{output_path}/b_avg_mse_err.csv', [b_avg_mse_err])
@@ -169,7 +175,7 @@ def match_inidices_to_baseline(ot_matches, bt_matches):
     bt_matches : list of length K, containing (i, j) match indices for target and baseline respectively
         DESCRIPTION.
     
-    Returns a unified list of matches
+    Returns a unified list of matches, each containing a tuple of indices (target, pred, baseline)
     -------
     None.
     
@@ -182,8 +188,8 @@ def match_inidices_to_baseline(ot_matches, bt_matches):
         for k2 in range(K): #looping over bt_matches
             if k2 in used_ks: 
                 continue
-            if ot_matches[k1][0] == ot_matches[k2][0]: #looking for a match in target index
-                matches.append((ot_matches[k1][0], ot_matches[k1][1], ot_matches[k2][1]))
+            if ot_matches[k1][0] == bt_matches[k2][0]: #looking for a match in target index
+                matches.append((ot_matches[k1][0], ot_matches[k1][1], bt_matches[k2][1]))
                 used_ks.add(k2)
                 break
     
@@ -202,7 +208,7 @@ def plot_comparison(i, k, folder_write, s_k, s_k_pred, s_baseline):
     plt.plot(s_k.cpu().detach().numpy(), label=f's{k}', color='tab:blue')
     plt.plot(s_k_pred.cpu().detach().numpy(), label=f's{k}_pred', color='tab:orange', linestyle='dashed')
     if s_baseline is not None:
-        plt.plot(s_baseline.cpu().detach().numpy(), label=f's{k}_baseline', color='tab:green', linestyle='dashed')
+        plt.plot(s_baseline.cpu().detach().numpy(), label=f's{k}_baseline', color='tab:red', linestyle='dotted', linewidth=2.5)
 
     
     plt.ylabel('signal')
@@ -226,6 +232,7 @@ def main(args, params, model_dir, data_dir):
     else:
         print(f'Warning: data_dir does not exist: {data_dir}, creating a new dataset.')
         read_baseline = False
+        args.data_mode = 'fixed'
         
     # Create test dataset
     dataset = create_dataset(args.data_size,
@@ -282,3 +289,5 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(args=inference_args, params=inference_params, model_dir=args.model_dir, data_dir=args.data_dir)
+
+
