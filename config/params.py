@@ -8,7 +8,7 @@ params = Params(
     ##########################
     # loss
     ##########################
-    loss_alpha=1.,
+    loss_alpha=0.3,
     ##########################
     # scheduler
     ##########################
@@ -19,7 +19,7 @@ params = Params(
     # ReduceLROnPlateau 
     reduce_lr_factor=0.5,
     reduce_lr_threshold=1e-4,
-    reduce_lr_patience=3,
+    reduce_lr_patience=5,
     reduce_lr_cooldown=2,
 
     # StepLR - every step_size epochs decrease by lr gamma factor
@@ -30,7 +30,7 @@ params = Params(
     # epochs and steps per epochs are defined in the code
     cyc_lr_pct_start=0.562,
     cyc_lr_anneal_strategy='cos',
-    cyc_lr_div_factor=57,
+    cyc_lr_div_factor=20,
     
     # CosineAnnealingLR - used as:
     # cos_ann_lr_T_max=int(num_epochs * len(train_loader) * cos_ann_lr_T_max_f)
