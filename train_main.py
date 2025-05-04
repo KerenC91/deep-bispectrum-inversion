@@ -14,6 +14,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from dataset import create_dataset, prepare_data_loader
 from torch.cuda import device_count
 from utils.utils import BispectrumCalculator
+import shutil
 
 
 def init_model(device, args, params):
@@ -55,6 +56,12 @@ def load_checkpoint(model, optimizer, scheduler, ckp_path, device, args, params,
     if device == 0 :  # Load only on Rank 0 in DDP or for Single GPU
         if os.path.exists(ckp_path):
             print('Checkpoint found')
+            # Save a copy for the chekpoint
+            parent_dir = os.path.dirname(ckp_path)
+            copy_path = os.path.join(parent_dir, "org_ckp.pt")
+            print(f"Saving a copy of checkpint from previous run: {copy_path}")
+            shutil.copy(ckp_path, copy_path)
+            
             if args.run_mode == "override":
                 print('Overriding existing checkpoint')
             elif args.run_mode == "resume" or args.run_mode == "from_pretrained":
