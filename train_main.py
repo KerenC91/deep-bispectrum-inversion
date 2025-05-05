@@ -83,8 +83,11 @@ def load_checkpoint(model, optimizer, scheduler, ckp_path, device, args, params,
                     
                     # Handle from_pretrained mode
                     else: #args.run_mode == "from_pretrained"
+                        print(f'Starting a new run from pretrained model')
+                        # Update optimizer and scheduler according to the loaded model
+                        set_optimizer(args, params, model)
+                        
                         if scheduler is not None:
-                                print(f'Starting a new run from pretrained model')
                                 scheduler = set_scheduler(args.scheduler, params,
                                                           optimizer, 
                                                           args.epochs - epoch, 
@@ -232,7 +235,6 @@ def create_test_name(args):
 def train(args, params):
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(device)
     
     train_implementation(0, args, params)
 
@@ -241,7 +243,6 @@ def train_distributed(args, params):
     ddp_setup()
     
     device = int(os.environ["LOCAL_RANK"])
-    print(f'Using GPU {device}')    
 
     train_implementation(device, args, params, is_distributed=True)
 
@@ -303,7 +304,8 @@ def train_implementation(device, args, params, is_distributed=False):
             init_wandb(args, params, test_name, folder_write) 
         if is_distributed:
             print(f'Distributed Training: running with {device_count()} GPUs')
-        print(f'use_transformers={not args.disable_transformers}')
+        transformers_flag_str = "without" if args.disable_transformers else "with"
+        print(f'Using DBI model {transformers_flag_str} transformers')
 
     # Initialize model and optimizer
     model = init_model(device, args, params)
@@ -311,7 +313,10 @@ def train_implementation(device, args, params, is_distributed=False):
     
     # Set helpers
     bs_calc = BispectrumCalculator(args.K, args.L, 'cpu')
-    print('Set train data')
+
+    if device == 0:
+        print(f'Training data mode is {args.data_mode}')
+        print('Setting training data with {args.train_data_size} samples')
     
     # Set train dataset and dataloader
     train_dataset = create_dataset(args.train_data_size, args.K, args.L,
@@ -321,8 +326,12 @@ def train_implementation(device, args, params, is_distributed=False):
         
     train_loader = prepare_data_loader(train_dataset, args.batch_size, is_distributed)
     # Set validation dataset and dataloader 
-    print('Set validation data')
-    
+    if device == 0:
+        if args.read_baseline:
+            args.val_data_size = min(args.val_data_size, len(os.listdir(folder_read)))
+            print('Reading validation data from baseline')
+        print('Setting validation data with {args.val_data_size} samples')
+
     val_dataset = create_dataset(args.val_data_size, args.K, args.L,
                                  args.read_baseline, 'fixed',
                                  folder_read, bs_calc,

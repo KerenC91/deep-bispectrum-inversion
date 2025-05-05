@@ -48,10 +48,8 @@ def read_bispectrum(folder, L):
 
 def read_samples_from_baseline(folder_read, data_size, K, L, label='x_true'):
 
-    data_size = min(data_size, len(os.listdir(folder_read)))
     target = torch.zeros(data_size, K, L)
     source = torch.zeros(data_size, 2, L, L)
-    print(f'The updated data size is {data_size}')
 
     for i in range(data_size):
         sample_path = os.path.join(folder_read, f'sample{i}')
@@ -89,7 +87,6 @@ def generate_dataset(data_mode, data_size, K, L, sigma):
 
 def create_dataset(data_size, K, L, read_baseline, data_mode,
                    folder_read, bs_calc, sigma=0., label="x_true"):
-    print(f'read_baseline={read_baseline}, data mode={data_mode}')
     if read_baseline: # in val dataset
         source, target = read_dataset_from_baseline(folder_read, data_size, K, L, sigma, label)
     else:

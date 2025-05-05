@@ -120,7 +120,6 @@ def update_reduce_height_cnt(reduce_height, Hin):
         if H == 2:
             add_conv_2 = True
             break
-    print(f'reduce_height=[{cnt},{k},{s},{add_conv_2}]')
 
     return cnt, k, s, add_conv_2
 
