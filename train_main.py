@@ -316,7 +316,7 @@ def train_implementation(device, args, params, is_distributed=False):
 
     if device == 0:
         print(f'Training data mode is {args.data_mode}')
-        print('Setting training data with {args.train_data_size} samples')
+        print(f'Setting training data with {args.train_data_size} samples')
     
     # Set train dataset and dataloader
     train_dataset = create_dataset(args.train_data_size, args.K, args.L,
@@ -330,7 +330,7 @@ def train_implementation(device, args, params, is_distributed=False):
         if args.read_baseline:
             args.val_data_size = min(args.val_data_size, len(os.listdir(folder_read)))
             print('Reading validation data from baseline')
-        print('Setting validation data with {args.val_data_size} samples')
+        print(f'Setting validation data with {args.val_data_size} samples')
 
     val_dataset = create_dataset(args.val_data_size, args.K, args.L,
                                  args.read_baseline, 'fixed',
