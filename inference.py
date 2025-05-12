@@ -97,7 +97,7 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
                 b_l1_err += F.l1_loss(curr_baseline, curr_target, reduction='mean')
                 b_mse_err += F.mse_loss(curr_baseline, curr_target, reduction='mean')
             else:
-                aligned_baseline = None
+                curr_baseline = None
             plot_comparison(i, k, folder_write, curr_target, curr_output, curr_baseline)
         
         rel_mse_err = torch.norm(output[0] - target[0]) ** 2 / torch.norm(target[0]) ** 2
