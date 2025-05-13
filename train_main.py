@@ -228,7 +228,8 @@ def create_test_name(args):
         test_str += f'_{args.scheduler}'
     
     # Append user defined test name
-    test_str += f'_{args.run_output_suffix}'
+    if args.run_output_suffix != '':
+        test_str += f'_{args.run_output_suffix}'
     
     return test_str
 
