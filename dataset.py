@@ -64,7 +64,7 @@ def read_samples_from_baseline(folder_read, data_size, K, L, label='x_true'):
 
     return source, target
 
-def read_dataset_from_baseline(folder_read, data_size, K, L, sigma, label="x_true"):
+def read_dataset_from_baseline(folder_read, data_size, K, L, label="x_true"):
     source, target = read_samples_from_baseline(folder_read, data_size, K, L, label)
 
     return source, target
@@ -88,7 +88,7 @@ def generate_dataset(data_mode, data_size, K, L, sigma):
 def create_dataset(data_size, K, L, read_baseline, data_mode,
                    folder_read, bs_calc, sigma=0., label="x_true"):
     if read_baseline: # in val dataset
-        source, target = read_dataset_from_baseline(folder_read, data_size, K, L, sigma, label)
+        source, target = read_dataset_from_baseline(folder_read, data_size, K, L, label)
     else:
         data, target = generate_dataset(data_mode, data_size, K, L, sigma)
         source, data = bs_calc(data)

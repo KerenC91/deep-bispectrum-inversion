@@ -33,7 +33,8 @@ import numpy as np
 from config.inference_params import inference_params, inference_args
 import argparse
 import torch.nn.functional as F
-
+import time 
+import pandas as pd
 
 
 torch.set_default_dtype(torch.float64)
@@ -54,6 +55,8 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
     max_rel_mse_err = 0.
     max_ind = 0.
 
+    err_list = []
+    times = []
     # loop over signals
     for idx, (source, target) in dataloader:
     
@@ -67,8 +70,14 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
             os.mkdir(folder_write)
       
         # Pass the sample's bispectrum through the model
+        start_time = time.time()  
+
         output = model(source)
         
+        end_time = time.time()
+
+        times.append(end_time - start_time)
+
         # Compute matched loss
         cost_matrix = compute_cost_matrix(output, target, bs_calc)
         matches = greedy_match(cost_matrix)[0]  # Get matched pairs
@@ -96,14 +105,15 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
                 curr_baseline = baseline[i][inds[2]]
                 b_l1_err += F.l1_loss(curr_baseline, curr_target, reduction='mean')
                 b_mse_err += F.mse_loss(curr_baseline, curr_target, reduction='mean')
+                b_rel_mse_err = torch.norm(baseline[i] - target[0]) ** 2 / torch.norm(target[0]) ** 2
             else:
                 curr_baseline = None
+                b_rel_mse_err = torch.tensor([-1.0])
             plot_comparison(i, k, folder_write, curr_target, curr_output, curr_baseline)
         
         rel_mse_err = torch.norm(output[0] - target[0]) ** 2 / torch.norm(target[0]) ** 2
-        b_rel_mse_err = torch.norm(baseline[i] - target[0]) ** 2 / torch.norm(target[0]) ** 2
         
-        print(f'sample{i + 1}: rel_mse_err={rel_mse_err:.15f}, b_rel_mse_err={b_rel_mse_err:.15f}, ')
+        err_list.append((i + 1, rel_mse_err.item(), b_rel_mse_err.item()))
 
         # Update target to output error
         rel_mse_err = rel_mse_err.item()
@@ -165,7 +175,17 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
         np.savetxt(f'{output_path}/b_avg_rel_mse_err.csv', [b_avg_rel_mse_err])
         np.savetxt(f'{output_path}/b_avg_l1_err.csv', [b_avg_l1_err])
         np.savetxt(f'{output_path}/b_avg_mse_err.csv', [b_avg_mse_err])
-
+    
+    sorted_err = sorted(err_list, key=lambda x: x[1])
+    
+    df = pd.DataFrame(sorted_err, columns=["index", "model_err", "baseline_err"])
+    df.to_csv(f'{output_path}/sorted_errors.csv', index=False)
+    
+    avg_time = np.mean(times) if times else 0
+    
+    np.savetxt(f'{output_path}/avg_time_secs.csv', [avg_time])
+    
+    return avg_time
 
 def match_inidices_to_baseline(ot_matches, bt_matches):
     '''
@@ -233,7 +253,9 @@ def main(args, params, model_dir, data_dir):
         print(f'Warning: data_dir does not exist: {data_dir}, creating a new dataset.')
         read_baseline = False
         args.data_mode = 'fixed'
-        
+    
+    print("Starting evalutaion...")
+    
     # Create test dataset
     dataset = create_dataset(args.data_size,
                              args.K, 
@@ -258,13 +280,12 @@ def main(args, params, model_dir, data_dir):
                                                  args.data_size,
                                                  args.K,
                                                  args.L,
-                                                 args.sigma,
                                                  "x_est")
         baseline = baseline.to(device)
     else:
         baseline = None
 
-        # Set model path
+    # Set model path
     model_path = os.path.join(model_dir, 'ckp.pt')
 
     # Load the model   
@@ -276,8 +297,13 @@ def main(args, params, model_dir, data_dir):
     model.eval()
     model.to(device)    
     
+    print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+    print(f"Total parameters: {sum(p.numel() for p in model.parameters())}")
+
     with torch.no_grad():
-        evaluate(device, dataloader, baseline, model, bs_calc, args=args, output_path=model_dir)
+        avg_time = evaluate(device, dataloader, baseline, model, bs_calc, args=args, output_path=model_dir)
+      
+    print(f"Total inference time: ", avg_time, "seconds")
 
     
 if __name__ == '__main__':
