@@ -86,39 +86,44 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
             bcost_matrix = compute_cost_matrix(baseline[i].unsqueeze(0), target, bs_calc)
             bmatches = greedy_match(bcost_matrix)[0]  # Get matched pairs
             matches = match_inidices_to_baseline(matches, bmatches)
-
-        l1_err = 0.
-        mse_err = 0.
-        b_l1_err = 0.
-        b_mse_err = 0.
-        
+       
         for k, inds in enumerate(matches, start=1):
             curr_target = target[0][inds[0]]
             output[0][inds[1]], _ = align_to_reference(output[0][inds[1]], curr_target)
             curr_output = output[0][inds[1]]
-            l1_err += F.l1_loss(curr_output, curr_target, reduction='mean')
-            mse_err += F.mse_loss(curr_output, curr_target, reduction='mean')
 
             if baseline is not None:
                 # Get index fitted to target in place inds[0]
                 # No need to align baseline, already aligned by the baseline code
                 curr_baseline = baseline[i][inds[2]]
-                b_l1_err += F.l1_loss(curr_baseline, curr_target, reduction='mean')
-                b_mse_err += F.mse_loss(curr_baseline, curr_target, reduction='mean')
-                b_rel_mse_err = torch.norm(baseline[i] - target[0]) ** 2 / torch.norm(target[0]) ** 2
             else:
                 curr_baseline = None
-                b_rel_mse_err = torch.tensor([-1.0])
-            plot_comparison(i, k, folder_write, curr_target, curr_output, curr_baseline)
-        
-        rel_mse_err = torch.norm(output[0] - target[0]) ** 2 / torch.norm(target[0]) ** 2
-        
-        err_list.append((i + 1, rel_mse_err.item(), b_rel_mse_err.item()))
 
+            plot_comparison(i, k, folder_write, curr_target, curr_output, curr_baseline)
+
+        if baseline is not None:
+            # Get index fitted to target in place inds[0]
+            # No need to align baseline, already aligned by the baseline code
+            curr_baseline = baseline[i][inds[2]]
+            b_l1_err = F.l1_loss(baseline[i], target[0], reduction='mean')
+            b_mse_err = F.mse_loss(baseline[i], target[0], reduction='mean')
+            b_rel_mse_err = torch.norm(baseline[i] - target[0]) ** 2 / torch.norm(target[0]) ** 2
+        else:
+            b_l1_err = torch.tensor([-1.0])   
+            b_mse_err = torch.tensor([-1.0])   
+            b_rel_mse_err = torch.tensor([-1.0]) 
+                    
+        rel_mse_err = torch.norm(output[0] - target[0]) ** 2 / torch.norm(target[0]) ** 2
+        l1_err = F.l1_loss(output[0], target[0], reduction='mean')
+        mse_err = F.mse_loss(output[0], target[0], reduction='mean')
+        err_list.append((i + 1, rel_mse_err.item(), b_rel_mse_err.item()))
+ 
+     
+                
         # Update target to output error
         rel_mse_err = rel_mse_err.item()
-        l1_err = l1_err.item() / args.K
-        mse_err = mse_err.item() / args.K
+        l1_err = l1_err.item()
+        mse_err = mse_err.item()
 
         # Update minimal and maximal errors
         if rel_mse_err < min_rel_mse_err:
@@ -135,8 +140,8 @@ def evaluate(device, dataloader, baseline, model, bs_calc, args, output_path):
 
         if baseline is not None:
             b_rel_mse_err = b_rel_mse_err.item()
-            b_l1_err = b_l1_err.item() / args.K
-            b_mse_err = b_mse_err.item() / args.K
+            b_l1_err = b_l1_err.item() 
+            b_mse_err = b_mse_err.item() 
             np.savetxt(f'{folder_write}/b_rel_mse_err.csv', [b_rel_mse_err])
             np.savetxt(f'{folder_write}/b_l1_err.csv', [b_l1_err])
             np.savetxt(f'{folder_write}/b_mse_err.csv', [b_mse_err])

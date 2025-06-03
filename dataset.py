@@ -10,7 +10,6 @@ import os
 import torch 
 import numpy as np
 from torch.utils.data.distributed import DistributedSampler
-import pandas as pd
 
 
 class StandardGaussianDataset(Dataset):
@@ -33,18 +32,20 @@ def read_signal(folder, k, K, label='x_true'):
         sample_path = os.path.join(folder, f'{label}_{k+1}.csv')
     else:
         sample_path = os.path.join(folder, f'{label}.csv')
-    df = pd.read_csv(smaple_path, header=None)
-    target = torch.tensor(df.values, dtype=torch.float32).squeeze(1)
+
+    target = np.loadtxt(sample_path, delimiter=" ")
+    target = torch.tensor(target)
     
     return target
 
 
 def read_bispectrum(folder, L):
     sample_path = os.path.join(folder, 'b_mixed.csv')
-    df = pd.read_csv(smaple_path, header=None)
-    source = torch.tensor(df.values, dtype=torch.float32).squeeze(1)
-    source = source.reshape(2, L, L)
 
+    source = np.loadtxt(sample_path, delimiter=",")
+    source = np.reshape(source, (2, L, L), order='F')
+    source = torch.tensor(source)
+    
     return source
 
 def read_samples_from_baseline(folder_read, data_size, K, L, label='x_true'):
